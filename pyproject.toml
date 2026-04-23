@@ -1,0 +1,13 @@
+# pyproject.toml
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "taskweave"
+version = "0.1.0"
+description = "Task orchestration engine with real-time observability"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "KinegraphX" }]
