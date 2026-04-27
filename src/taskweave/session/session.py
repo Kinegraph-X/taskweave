@@ -1,13 +1,15 @@
 from dataclasses import dataclass, field
-from whisper_infer.states import SessionState
-from whisper_infer.pipeline import Pipeline
-from whisper_infer.snapshots import PipelineFailure
+from time import time
+from uuid import uuid4
+from taskweave.states import SessionState
+from taskweave.pipeline import Pipeline
+from taskweave.snapshots import PipelineFailure
 
 @dataclass
 class Session:
-    id: str                          # UUID
-    media_path: str
-    keywords: list[str]
+    # media_path: str
+    # keywords: list[str]
+    id: str = field(default = f"Session_{uuid4().hex[:6]}") #hex(int(time() * 1000) >> 32)[16:]
     started_at: float = field(default = 0.0)
     pipelines: list[Pipeline] = field(default_factory=list)
     state: SessionState = SessionState.PENDING

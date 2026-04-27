@@ -6,9 +6,10 @@ from multiprocessing.synchronize import Event as MpEvent
 import subprocess
 
 from .worker_logger import WorkerLogger
+from taskweave.messages import LogEventProducer
 
-from whisper_infer.messages import LogEvent
-from whisper_infer.states import WorkerContext
+from taskweave.messages import LogEvent
+from taskweave.states import WorkerContext
 
 def get_time():
 	current_datetime = datetime.now()
@@ -22,6 +23,7 @@ class BasicWorker(Process):
         self.args_list = args_list
         self.dest_con, self.origin_con = multiprocessing.Pipe()
         self.ctx = WorkerContext(name)
+        self.log_producer = LogEventProducer()
         self.print_queue = print_queue
         log_folder = f"{args_list[0]}_logs/" if args_list[0] != "python" else f"{args_list[1][:-3]}_logs/"
         self.logger = WorkerLogger(name, log_folder)
@@ -98,6 +100,6 @@ class BasicWorker(Process):
             buffer = ""
             for line in lines:
                 if line.strip():
-                    if self.logger.push(line.strip()):   # the logger is responsible for classifying messages (for verbose outputs)
-                        self.print_queue.put(LogEvent(self.name, line.strip()))
+                    event = self.log_producer.on_line(self.name, line.strip())
+                    self.print_queue.put(event)
 

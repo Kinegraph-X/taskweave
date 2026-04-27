@@ -1,29 +1,30 @@
 import time
-from typing import List, Callable
+from typing import List, Callable, TypeVar
 from dataclasses import dataclass
 
 from .task import Task
 from .task_strategy import ExecutionStrategy, LocalProcessStrategy, SubprocessStrategy
 
-from whisper_infer.snapshots import TaskSnapshot
-from whisper_infer.states import TaskState
-from whisper_infer.workers import WorkerManager
-from whisper_infer.states import WorkerContext
-from whisper_infer.utils import StrSerializable
+from taskweave.snapshots import TaskSnapshot
+from taskweave.states import TaskState, StateHandler, task_transitions
+from taskweave.workers import WorkerManager
+# from taskweave.states import WorkerContext
+from taskweave.utils import StrSerializable
 
 @dataclass
 class PipelineTask:
-    def __init__(self, task_spec : Task, session_id : str = 'local'):
+    def __init__(self, task_spec : Task, on_change : Callable, session_id : str = 'local'):
         session_prefix = session_id[:6]
-        self.name = f"{session_prefix}_{task_spec.name}"
+        self.name = task_spec.name(session_prefix) # reverse concatenated
         self.manager: WorkerManager | None = task_spec.manager
         self.cmd: List[str | StrSerializable] = task_spec.cmd
         self.strategy : ExecutionStrategy  = LocalProcessStrategy()
         self.after_complete : Callable | None = task_spec.after_complete
         self.early_exit_on_success : bool | Callable = task_spec.early_exit_on_success
         self.cancellable: bool = task_spec.cancellable
-        self.context: WorkerContext      # état métier
+        # self.context: WorkerContext      # état métier
         self.state: TaskState = TaskState.PENDING
+        self.handler = StateHandler(TaskState.PENDING, task_transitions, on_change)
         self.started_at : float = time.time()
         self.last_error : str = ''
         self.on_success: Callable | None = None

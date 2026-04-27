@@ -4,5 +4,6 @@ class PipelineState(Enum):
     PENDING = "pending"
     RUNNING = "running"
     STOPPED = "stopped"
+    STOPPING = "stopping"
     FAILED =  "failed"
-    DONE = "done"
+    SUCCESS = "success"

@@ -7,10 +7,10 @@ from .worker_logger import WorkerLogger
 from .worker_status import WorkerStatus
 from .basic_worker import BasicWorker
 
-from whisper_infer.tasks import PendingTask
-from whisper_infer.context import get_app_context
+from taskweave.tasks import PendingTask
+from taskweave.context import get_app_context
 config, constants, cmd_line_args = get_app_context()
-from whisper_infer.states import WorkerState
+from taskweave.states import WorkerState
 # if getattr(sys, 'frozen', False):
 
 # ctx = get_context('spawn')  # Explicitly get a new context with 'spawn'
@@ -21,8 +21,7 @@ if __name__ == "__main__":
 # curl -d "{\"name\" : \"server\"}" -H "Content-Type:application/json" -X POST http://localhost:3001/start_worker
 
 class WorkerManager:
-    def __init__(self, session_id, max_count = 4):
-        self.session_id = None
+    def __init__(self, max_count = 4):
         self.workers = {}
         # self.message_queues = {}
         self._message_queue : Queue = multiprocessing.Queue()
@@ -144,7 +143,6 @@ class WorkerManager:
             event = self._message_queue.get()
             if event is None:
                 return
-            event.session_id = self.session_id
             for worker, cb in self.on_log_cbs:
                 if event.worker == worker:
                     cb(event)
