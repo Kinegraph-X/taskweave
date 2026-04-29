@@ -2,7 +2,7 @@ from typing import Callable, Protocol
 import subprocess, threading
 from time import time
 from .pipeline_task import PipelineTask
-from taskweave.workers import WorkerManager
+from taskweave.workers import WorkerPool, WorkerManager, SubProcessManager
 
 class ExecutionStrategy(Protocol):
     def __init__(self):
@@ -17,7 +17,7 @@ class LocalProcessStrategy:
             self,
             *,
             max_count = 4,
-            manager = WorkerManager()
+            manager : WorkerManager = WorkerManager()
         ):
         manager.max_count = max_count
         self.manager = manager
@@ -27,24 +27,17 @@ class LocalProcessStrategy:
         self.manager.add_worker(task.name, task.cmd, on_success, on_failure)
 
     def cleanup(self, task: PipelineTask) -> None:
-        self.manager.stop_worker(task.name)
-        self.manager.remove_worker(task.name)
+        self.manager.stop_worker(str(task.name))
+        self.manager.remove_worker(str(task.name))
 
 class SubprocessStrategy:
+    manager : WorkerPool = SubProcessManager(source_id = "")
     def run(self, task, on_success, on_failure):
         task.started_at = time()
-        threading.Thread(
-            target=self._run,
-            args=(task, on_success, on_failure),
-            daemon=True
-        ).start()
-
-    def _run(self, task, on_success, on_failure):
-        result = subprocess.run(task.cmd)
-        on_success() if result.returncode == 0 else on_failure()
+        self.manager.add_worker(task.name, task.cmd, on_success, on_failure)
 
     def cleanup(self, task: PipelineTask) -> None:
-        pass
+        self.manager.stop_worker(str(task.name))
 
 class ExternalStrategy:
     """

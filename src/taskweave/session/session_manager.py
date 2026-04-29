@@ -1,15 +1,19 @@
+from typing import cast
 import threading
 from uuid import uuid4
 from time import time, sleep
 from .session import Session
-from taskweave.context import Config
+from taskweave.context import Config, get_app_context
+config, constants = get_app_context()
 from taskweave.snapshots import PipelineFailure
 from taskweave.info_stream import StreamWriter
 from taskweave.snapshots import SessionSnapshot
 from taskweave.pipeline import PipelineOrchestrator, Pipeline
-from taskweave.tasks import CancelPolicy, Task
+from taskweave.tasks import CancelPolicy, Task, SubprocessStrategy
 from taskweave.messages import MsgType, LogEvent, SourceType
 from taskweave.states import SessionState, TaskState, PipelineState
+from taskweave.workers import WorkerManager, SubProcessManager
+from taskweave.logging import LogStore
 
 class SessionManager:
     def __init__(
@@ -21,15 +25,18 @@ class SessionManager:
             # config.media_path,
             # config.keywords,
         )
-        self.stream_manager = StreamWriter()
+        self.stream_writer = StreamWriter()
         self.orchestrator = PipelineOrchestrator(
             self.session.id,
             self.log_failure,
             cancel_policy
         )
         self.session.pipelines = self.orchestrator.pipelines
+        self.managers : list[WorkerManager] = []
+        self.log_store = LogStore(log_dir = constants.log_folder)
 
     def start_session(self) -> None:
+        self.log_store.cleanup()
         self.session.started_at = time()
         self.session.state = SessionState.RUNNING
         self.orchestrator.start_all_pipelines()
@@ -66,7 +73,22 @@ class SessionManager:
                 source_id = task_spec.name,
                 timestamp=time()
             ))
+        # get name allowing ordering on disk
+        task_name = self.log_store.register(self.session.id, task_spec.name)
+        task_spec.name = task_name
         self.orchestrator.add_task(pipeline_id, task_spec, on_transition)
+        self.subscribe_to_manager(task_spec)
+
+    # keeps track of managers
+    # and ensures stream_writer subscriptions to manager._on_log_cb are unique
+    def subscribe_to_manager(self, task : Task):
+        # compatibility between implementations of TaskStrategy
+        if isinstance(task.strategy, SubprocessStrategy):
+            # legit cast as manager can't be None in that case
+            cast(SubProcessManager, task.manager).source_id = str(task.name)
+        if  task.manager and task.manager not in self.managers:
+            task.manager.subscribe_to_logs(self.stream_writer._on_event)
+            self.managers.append(task.manager)
 
     def _wait_for_stop(self) -> None:
         while any(
@@ -93,7 +115,7 @@ class SessionManager:
         snapshot = None
         if event.msg_type == MsgType.STATE_CHANGE:
             snapshot = self.snapshot()
-        self.stream_manager._on_event(event, snapshot)
+        self.stream_writer._on_event(event, snapshot)
 
     def log_failure(self, pipeline_id : str, reason : str) -> None:
         self.session.failure_reasons.append(

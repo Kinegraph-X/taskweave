@@ -15,7 +15,7 @@ from taskweave.utils import StrSerializable
 class PipelineTask:
     def __init__(self, task_spec : Task, on_change : Callable, session_id : str = 'local'):
         session_prefix = session_id[:6]
-        self.name = task_spec.name(session_prefix) # reverse concatenated
+        self.name = task_spec.name # task_spec.name(session_prefix) # reverse concatenated
         self.manager: WorkerManager | None = task_spec.manager
         self.cmd: List[str | StrSerializable] = task_spec.cmd
         self.strategy : ExecutionStrategy  = LocalProcessStrategy()

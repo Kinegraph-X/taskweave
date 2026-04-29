@@ -17,16 +17,14 @@ def get_time():
 
 class BasicWorker(Process):
 
-    def __init__(self, name, args_list, print_queue, debug=False, dist=False, **kwargs):
+    def __init__(self, name, args_list, print_queue, producer = LogEventProducer(), debug=False, dist=False):
         super(BasicWorker, self).__init__()
         self.name = name
         self.args_list = args_list
         self.dest_con, self.origin_con = multiprocessing.Pipe()
         self.ctx = WorkerContext(name)
-        self.log_producer = LogEventProducer()
+        self.log_producer = producer
         self.print_queue = print_queue
-        log_folder = f"{args_list[0]}_logs/" if args_list[0] != "python" else f"{args_list[1][:-3]}_logs/"
-        self.logger = WorkerLogger(name, log_folder)
 
     def run(self):
         try:
@@ -101,5 +99,6 @@ class BasicWorker(Process):
             for line in lines:
                 if line.strip():
                     event = self.log_producer.on_line(self.name, line.strip())
-                    self.print_queue.put(event)
+                    if event:
+                        self.print_queue.put(event)
 

@@ -11,6 +11,7 @@ from taskweave.tasks import PendingTask
 from taskweave.context import get_app_context
 config, constants, cmd_line_args = get_app_context()
 from taskweave.states import WorkerState
+from taskweave.messages import LogProducer
 # if getattr(sys, 'frozen', False):
 
 # ctx = get_context('spawn')  # Explicitly get a new context with 'spawn'
@@ -45,34 +46,37 @@ class WorkerManager:
             
     def add_worker(
             self,
+            *,
             name : str,
             args_list : List[str],
             on_success : Callable | None = None,
             on_failure : Callable | None = None,
             on_log : Callable | None = None,
-            *args
+            producer : LogProducer | None
         ):
         if len(self.workers) >= self.max_count:
             self._pending.append(PendingTask(name, args_list, on_success, on_failure))
             return 
         else:
-            self.reset_worker_instance(name, args_list, on_success, *args)
-            if on_log:
-                self.on_log_cbs[name] = on_log
-        return self.start_worker(name, *args)
+            self.reset_worker_instance(name, args_list, on_success, on_failure, on_log, producer)
+            
+        return self.start_worker(name)
 
-    def reset_worker_instance(self, name, args_list, on_success, on_failure, *args):
+    def reset_worker_instance(self, name, args_list, on_success, on_failure, on_log, producer):
         # allow passing serializable objects references
         args_list = [str(part) for part in args_list]
         self.workers[name] = BasicWorker(
             name,
             args_list,
             self._message_queue,
+            producer = producer,
             debug = cmd_line_args.debug,
             dist = cmd_line_args.dist
         )
-        self.on_success_cbs[name] = on_success
-        self.on_failure_cbs[name] = on_failure
+        self.on_success_cbs[name] = on_success # None is handled in completion_thread
+        self.on_failure_cbs[name] = on_failure # None is handled in completion_thread
+        if on_log:
+                self.on_log_cbs[name] = on_log
         self.completion_threads[name] = threading.Thread(
             target=self.completion_loop, args = (name, ), daemon=True
         )
@@ -81,7 +85,7 @@ class WorkerManager:
     def subscribe_to_logs(self, cb, name : str | None = None):
         self.on_log_cbs['central_queue'] = cb
 
-    def start_worker(self, name, *args):
+    def start_worker(self, name):
         self._assert_transition(name, WorkerState.STOPPED)
         self.workers[name].start()
         self.workers[name].ctx.set_started("start worker")
@@ -143,9 +147,10 @@ class WorkerManager:
             event = self._message_queue.get()
             if event is None:
                 return
-            for worker, cb in self.on_log_cbs:
+            for worker, cb in self.on_log_cbs.items():
                 if event.worker == worker:
                     cb(event)
+            self.on_log_cbs["central_queue"](event)
 
     def completion_loop(self, name):
         worker = self.workers[name]

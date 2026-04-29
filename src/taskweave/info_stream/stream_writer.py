@@ -1,7 +1,7 @@
 from typing import List, Callable
-from whisper_infer.messages import LogEvent, Enveloppe
-from whisper_infer.workers import WorkerManager
-from whisper_infer.snapshots import SessionSnapshot
+from taskweave.messages import LogEvent, Enveloppe
+from taskweave.workers import WorkerManager
+from taskweave.snapshots import SessionSnapshot
 
 class StreamManager:
     def __init__(self):

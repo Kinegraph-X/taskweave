@@ -2,13 +2,12 @@ from typing import Protocol, Any, Pattern
 from dataclasses import dataclass
 import ast, re
 
-from .field import FieldExtractor
+from .field import Field
 from .json_schema import JsonSchema
 from .json_schema_type import JsonSchemaType
 
-@dataclass(kw_only=True)
 class LineExtractor(Protocol):
-    extractors : list[FieldExtractor]
+    extractors : list[Field]
 
     def parse(self, line: str) -> dict[str, Any] | None:
         pass
@@ -17,7 +16,7 @@ class LineExtractor(Protocol):
 
 @dataclass(kw_only=True)
 class RExtractor:
-    extractors : list[FieldExtractor]
+    extractors : list[Field]
     
     def parse(self, line: str) -> dict[str, Any] | None:
         results: dict[str, Any] = {}
