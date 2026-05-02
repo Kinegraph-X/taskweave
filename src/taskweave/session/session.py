@@ -9,7 +9,7 @@ from taskweave.snapshots import PipelineFailure
 class Session:
     # media_path: str
     # keywords: list[str]
-    id: str = field(default = f"{uuid4().hex[:6]}") #hex(int(time() * 1000) >> 32)[16:]
+    id: str = field(default = f"session_{uuid4().hex[:6]}") #hex(int(time() * 1000) >> 32)[16:]
     started_at: float = field(default = 0.0)
     pipelines: list[Pipeline] = field(default_factory=list)
     state: SessionState = SessionState.PENDING

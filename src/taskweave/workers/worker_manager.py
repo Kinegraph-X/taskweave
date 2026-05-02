@@ -61,6 +61,8 @@ class WorkerManager:
             on_log : Callable | None = None,
             producer : LogProducer | None
         ):
+        # allow passing serializable objects references
+        name = str(name)
         if len(self.workers) >= self.max_count:
             self._pending.append(PendingTask(name, args_list, on_success, on_failure, producer))
             return 
@@ -73,7 +75,7 @@ class WorkerManager:
         # allow passing serializable objects references
         args_list = [str(part) for part in args_list]
         self.workers[name] = BasicWorker(
-            name = str(name),
+            name = name,
             args_list = args_list,
             print_queue = self._message_queue,
             producer = producer,
