@@ -1,5 +1,5 @@
 from typing import cast, Callable
-import threading
+import os, threading
 from uuid import uuid4
 from time import time, sleep
 from .session import Session
@@ -23,7 +23,8 @@ class SessionManager:
             config : Config | None = None,
             on_event : Callable | None = None,
             cancel_policy : CancelPolicy = CancelPolicy.CANCEL_PENDING_ONLY
-            ):
+        ):
+        self.ensure_context_safe()
         self.session = Session(
             # config.media_path,
             # config.keywords,
@@ -156,3 +157,18 @@ class SessionManager:
             failure_reasons=self.session.failure_reasons
         )
     
+    def reset(self, on_event, cancel_policy : CancelPolicy = CancelPolicy.CANCEL_PENDING_ONLY):
+        self.pipelines = {}
+        self.session = Session()
+        self.stream_writer = StreamWriter(on_event = on_event)
+        self.orchestrator = PipelineOrchestrator(
+            self.session.id,
+            self.log_failure,
+            cancel_policy
+        )
+        self.session.pipelines = self.orchestrator.pipelines
+        self._managers : list[WorkerPool] = []
+        self.log_store = LogStore(log_dir = constants.log_folder)
+
+    def ensure_context_safe(self):
+        os.makedirs(constants.log_folder, exist_ok = True)

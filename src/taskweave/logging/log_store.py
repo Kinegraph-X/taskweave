@@ -6,6 +6,8 @@ from time import time, time_ns
 import json
 
 from .log_reader import LogReader
+from .session_data import SessionData
+from .make_log_id import make_log_id
 
 from taskweave.context import get_app_context
 from taskweave.utils import StrSerializable
@@ -19,23 +21,12 @@ class Encoder(json.JSONEncoder):
             return str(obj)  # ou int(obj)
         return super().default(obj)
 
-@dataclass(kw_only=True)
-class SessionData:
-    timestamp: float = field(default_factory = time)
-    list: List[str | StrSerializable] = field(default_factory = list)
-
-def make_log_id(task_name: str | StrSerializable) ->  str | StrSerializable:
-    ts = hex(time_ns() // 1_000_000)[-8:]  # ms, 8 chars, 2038-proof on 34 years more
-    if isinstance(task_name, StrSerializable):
-        return cast(Callable, task_name)(f"_{ts}")
-    
-    return f"{task_name}_{ts}"
 
 @dataclass(kw_only=True)
 class LogStore:
     log_dir: Path
     log_index: Path = Path(f"{constants.log_index_filename}{constants.log_index_extension}")
-    max_age = 49 * 24 * 3600 * 1000
+    max_age : float = float(49 * 24 * 3600 * 1000)
 
     # generates log_id, write in index, returns log_id
     def register(self, session_id: str, task_name: str | StrSerializable) -> str | StrSerializable:
@@ -48,7 +39,7 @@ class LogStore:
                     # reconstruct original structure, for consistancy in code
                     log_content = data = {k: SessionData(**v) for k, v in log_content.items()}
             except Exception as e:
-                raise RuntimeError(f"Malformed log index file : {index_path}")
+                raise RuntimeError(f"error loading log index file, possibly malformed : {index_path} :{e}")
             if not session_id in log_content.keys():
                 log_content[session_id] = SessionData()
         else:
@@ -62,11 +53,11 @@ class LogStore:
         else:
             log_content[session_id] = SessionData(list = [log_filename])
         with open(index_path, "w") as f:
-            # {k : asdict(v) for k, v in log_content.items()}
             json.dump(log_content, f, cls = Encoder)
+
         return log_filename
     
-    # session_id → session data
+    # session_id → session_data
     def resolve(self, session_id: str) -> SessionData | None:
         index_path = path.join(self.log_dir, self.log_index)
         with open(index_path, "r") as f:
@@ -121,9 +112,10 @@ class LogStore:
             to_delete = []
             try:
                 # reconstruct original, for consistancy in code
-                sessions = data = {k: SessionData(**v) for k, v in json.load(f).items()}
+                sessions = {k: SessionData(**v) for k, v in json.load(f).items()}
             except Exception as e:
-                raise e
+                raise RuntimeError(f"error loading log index file, possibly malformed : {index_path} :{e}")
+            
             for session_id, session_data in sessions.items():
                 filelist = session_data.list
                 if current_time - session_data.timestamp > self.max_age:

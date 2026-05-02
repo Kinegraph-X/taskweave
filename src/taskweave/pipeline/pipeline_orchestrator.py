@@ -37,12 +37,12 @@ class PipelineOrchestrator:
             raise ValueError(f'start_pipeline() on non-existing pipeline. pipeline_id is {pipeline_id}')
         pipeline.started_at = time()
         self._next_task(pipeline, 0)
-        pipeline.handler.transition(PipelineState.RUNNING)
+        pipeline.cycle.transition(PipelineState.RUNNING)
 
     def start_all_pipelines(self):
         for pipeline in self.pipelines:
             self._next_task(pipeline, 0)
-            pipeline.handler.transition(PipelineState.RUNNING)
+            pipeline.cycle.transition(PipelineState.RUNNING)
 
     def stop_pipeline(self, pipeline_id : str):
         pipeline = next((p for p in self.pipelines if p.id == pipeline_id), None)
@@ -63,11 +63,11 @@ class PipelineOrchestrator:
 
     def _next_task(self, pipeline, idx):
         if idx >= len(pipeline.tasks):
-            pipeline.handler = PipelineState.DONE
+            pipeline.cycle = PipelineState.DONE
             return
 
         task = pipeline.tasks[idx]
-        task.handler.transition(TaskState.RUNNING)
+        task.cycle.transition(TaskState.RUNNING)
 
         self._run_task(pipeline, task, idx)
 
@@ -87,7 +87,7 @@ class PipelineOrchestrator:
         if task.after_complete:
             task.after_complete(task.name)
 
-        task.handler.transition(TaskState.SUCCESS)
+        task.cycle.transition(TaskState.SUCCESS)
 
         if callable(task.early_exit_on_success):
             if task.early_exit_on_success():
@@ -95,21 +95,21 @@ class PipelineOrchestrator:
                 return
 
         if next_idx >= len(pipeline.tasks):
-            pipeline.handler.transition(PipelineState.SUCCESS)
+            pipeline.cycle.transition(PipelineState.SUCCESS)
             return
 
         self._next_task(pipeline, next_idx)
 
     def _on_task_failure(self, pipeline: Pipeline, idx: int):
         task = pipeline.tasks[idx]
-        task.handler.transition(TaskState.FAILED)
-        pipeline.handler.transition(PipelineState.FAILED)
+        task.cycle.transition(TaskState.FAILED)
+        pipeline.cycle.transition(PipelineState.FAILED)
         self._on_pipeline_failure(pipeline.id, f'task {task.name} failed')
 
         task.strategy.cleanup(task.name)
         for task in pipeline.tasks[idx + 1:]:
             if task.cancellable:
-                task.handler.transition(TaskState.CANCELED)
+                task.cycle.transition(TaskState.CANCELED)
                 return
 
     def early_exit(self):
@@ -126,15 +126,15 @@ class PipelineOrchestrator:
         # cancel pending tasks, let running tasks go to end
         for task in pipeline.tasks:
             if task.state == TaskState.PENDING and task.cancellable:
-                task.handler.transition(TaskState.CANCELED)
+                task.cycle.transition(TaskState.CANCELED)
             elif (task.state == TaskState.RUNNING
                     and self.cancel_policy == CancelPolicy.CANCEL_ALL):
                 task.strategy.cleanup(task.name)
 
         if self.cancel_policy == CancelPolicy.CANCEL_ALL:
             if is_early_exit:
-                pipeline.handler.transition(PipelineState.EARLY_EXIT)
+                pipeline.cycle.transition(PipelineState.EARLY_EXIT)
             else:
-                pipeline.handler.transition(PipelineState.CANCELLED)
+                pipeline.cycle.transition(PipelineState.CANCELLED)
         else:
-            pipeline.handler.transition(PipelineState.STOPPING)
+            pipeline.cycle.transition(PipelineState.STOPPING)

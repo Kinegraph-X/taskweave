@@ -1,5 +1,5 @@
 import argparse
-
+from dataclasses import dataclass
 from .channel_info import extract_channel_info
 
 from .config import config
@@ -38,7 +38,13 @@ def get_args() -> argparse.Namespace :
 
 
 def get_config():
-    args = get_args()
+    # args = get_args()
+    @dataclass
+    class arg_class:
+        debug = False
+        dist = False
+        log_level = "INFO"
+    args = arg_class()
 
     config.debug = args.debug
     config.dist = args.dist

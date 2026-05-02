@@ -6,8 +6,8 @@ from collections import deque
 from .worker_logger import WorkerLogger
 from .worker_status import WorkerStatus
 from .basic_worker import BasicWorker
+from .work_item import WorkItem
 
-from taskweave.tasks import PendingTask
 from taskweave.context import get_app_context
 config, constants, cmd_line_args = get_app_context()
 from taskweave.states import WorkerState, WorkerContext
@@ -15,9 +15,9 @@ from taskweave.messages import LogProducer
 # if getattr(sys, 'frozen', False):
 
 # ctx = get_context('spawn')  # Explicitly get a new context with 'spawn'
-# if __name__ == "__main__":
-#     multiprocessing.freeze_support()
-#     multiprocessing.set_start_method('spawn', force=True)
+if __name__ == "__main__":
+    multiprocessing.freeze_support()
+    multiprocessing.set_start_method('spawn', force=True)
 
 # curl -d "{\"name\" : \"server\"}" -H "Content-Type:application/json" -X POST http://localhost:3001/start_worker
 
@@ -32,7 +32,7 @@ class WorkerManager:
         self.on_failure_cbs = {}
         self.completion_threads = {}
         self.max_count = max_count
-        self._pending: deque[PendingTask] = deque()
+        self._pending: deque[WorkItem] = deque()
         self._dispatch_thread = threading.Thread(
             target=self._dispatch_loop, daemon=True
         )
@@ -64,7 +64,7 @@ class WorkerManager:
         # allow passing serializable objects references
         name = str(name)
         if len(self.workers) >= self.max_count:
-            self._pending.append(PendingTask(name, args_list, on_success, on_failure, producer))
+            self._pending.append(WorkItem(name, args_list, on_success, on_failure, producer))
             return 
         else:
             self.reset_worker_instance(name, args_list, on_success, on_failure, on_log, producer)

@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 from taskweave.snapshots import PipelineSnapshot
 from taskweave.tasks import PipelineTask, Task
-from taskweave.states import PipelineState, StateHandler, pipeline_transitions
+from taskweave.states import PipelineState, Lifecycle, pipeline_transitions
 from taskweave.utils import StrSerializable
 
 class Pipeline():
@@ -15,7 +15,11 @@ class Pipeline():
         self.tasks : List[PipelineTask] = []
         self._task_names : Set[str | StrSerializable] = set()  # enforce local unicity
         self.state : PipelineState = PipelineState.PENDING
-        self.handler = StateHandler(PipelineState.PENDING, pipeline_transitions, on_change)
+        self.cycle = Lifecycle(
+            state = PipelineState.PENDING,
+            transitions = pipeline_transitions,
+            on_transition = on_change
+        )
         self.currently_running : Task | None = None
         self.started_at : float = time.time()
         self.early_exit : bool = False

@@ -11,7 +11,6 @@ class Constants():
     log_index_extension = ".json"
 
 constants = Constants()
-os.makedirs(constants.log_folder, exist_ok = True)
 
 def get_app_context():
     return config, constants, args
