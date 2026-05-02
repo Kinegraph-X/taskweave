@@ -115,6 +115,7 @@ status_extractor = RExtractor(fields=[
 ### Classifying lines
 
 Each line is parsed according to cascading rules, first match wins.
+`Persist_Verbose_And_Discarded` is the most common strategy — it keeps unmatched lines (typed as DISCARD internally) and known noise (lines identified and declared as VERBOSE) on disk, while structured output flows to the client. `Persist_Discarded` skips `VERBOSE` from logging to disk.
 
 ```python
 from taskweave.dialect import (
@@ -132,24 +133,25 @@ fetch_classifier = Classifier(
     },
     # taskweave does not handle retry — unmatched lines (connection errors, warnings)
     # are kept on disk. Recovery logic belongs to the app.
-    persist=PersistStrategy(
+    persist=Persist_Verbose_and_Discarded(
         backend=FileBackend(log_dir=constants.log_folder),
-        policy=PersistPolicy.VERBOSE_AND_DISCARDED,
     )
 )
 ```
 
 `OutputType` values:
 
-| Value | Meaning | Sent to client |
+| Value | Sent to client | Persisted to disk |
 |---|---|---|
-| `PROGRESS` | Structured, recurring metric | yes |
-| `BANNER` | Process metadata, emitted once at startup | yes |
-| `LOG_LINE` | Unstructured stdout | yes |
-| `VERBOSE` | Unmatched lines, kept on disk | no |
-| `DISCARD` | Known noise, kept on disk | no |
+| `PROGRESS` | yes | no |
+| `BANNER` | yes | no |
+| `LOG_LINE` | yes | no |
+| `VERBOSE` | yes | yes |
+| `DISCARD` | no | yes |
 
 ### Attaching a dialect to a task
+
+`Task` accepts any `LogProducer` — `ClassifyingProducer` is the implementation provided by `dialect`, wrapping a `Classifier` into the expected interface. 
 
 ```python
 from taskweave.workers import ClassifyingProducer
@@ -211,7 +213,7 @@ session.add_task(pipeline_id, Task(
     command=["python", "export.py", "--output", "results.csv"],
 ))
 
-session.start_pipeline(pipeline_id)
+session.start_pipeline(pipeline_id) # or session.start() for "all pipelines"
 ```
 
 `on_complete` is always called after a task finishes — use it to pass data between tasks via shared context. `early_exit_condition` is evaluated after `on_complete` — taskweave stays blind to the business logic.

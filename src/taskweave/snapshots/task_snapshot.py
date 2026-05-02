@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from whisper_infer.states import TaskState
+from taskweave.states import TaskState
 
 @dataclass
 class TaskSnapshot:
@@ -9,4 +9,4 @@ class TaskSnapshot:
     elapsed: float
     last_error: str
     retries: int = field(default = 0)
-    progress: dict = field(default = {}) # extensible : {"lines_processed": 42, ...}
+    progress: dict = field(default_factory = dict) # extensible : {"lines_processed": 42, ...}

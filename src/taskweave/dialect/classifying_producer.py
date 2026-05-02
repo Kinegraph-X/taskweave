@@ -1,17 +1,11 @@
 from dataclasses import dataclass
 from time import time
 
-from taskweave.messages import LogEvent, MsgType, SourceType
 from .classifier import Classifier
-from .output_type import OutputType
 
-_OUTPUT_TO_MSG: dict[OutputType, MsgType] = {
-    OutputType.PROGRESS :   MsgType.PROGRESS,
-    OutputType.LOG_LINE :   MsgType.LOG_LINE,
-    OutputType.BANNER :     MsgType.BANNER,
-    OutputType.VERBOSE :   MsgType.BANNER
-    # DISCARD absent — no LogEvent produced
-}
+from taskweave.messages import OutputType, _OUTPUT_TO_MSG, LogEvent, MsgType, SourceType
+
+
 
 
 """

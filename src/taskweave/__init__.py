@@ -1,6 +1,6 @@
 import logging
-from whisper_infer.context import get_app_context
-config, constants = get_app_context()
+from taskweave.context import get_app_context
+config, constants, args = get_app_context()
 
 logging.basicConfig(
     level = config.log_level,

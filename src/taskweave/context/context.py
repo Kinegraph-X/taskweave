@@ -7,6 +7,8 @@ config, args = get_config()
 @dataclass
 class Constants():
     log_folder = "logs/"
+    log_index_filename = "log_index"
+    log_index_extension = ".json"
 
 constants = Constants()
 os.makedirs(constants.log_folder, exist_ok = True)

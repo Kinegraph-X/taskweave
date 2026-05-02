@@ -5,8 +5,7 @@ from time import time
 from .pipeline import Pipeline
 
 from taskweave.states import PipelineState, TaskState
-from taskweave.tasks import Task, CancelPolicy, ExternalStrategy
-from taskweave.session import SessionManager, Session
+from taskweave.tasks import Task, PipelineTask, CancelPolicy, ExternalStrategy
 from taskweave.messages import LogEvent, MsgType
 
 class PipelineOrchestrator:
@@ -26,11 +25,11 @@ class PipelineOrchestrator:
         self.pipelines.append(pipeline)
         return pipeline.id
     
-    def add_task(self, pipeline_id : str, task : Task, on_change : Callable):
+    def add_task(self, pipeline_id : str, task : Task, on_change : Callable, on_cleanup : Callable[[], None] | None):
         pipeline = next((p for p in self.pipelines if p.id == pipeline_id), None)
         if not pipeline:
             raise ValueError(f'add_task() on non-existing pipeline. pipeline_id is {pipeline_id}')
-        pipeline.add_task(task, on_change)
+        pipeline.add_task(task, on_change, on_cleanup)
 
     def start_pipeline(self, pipeline_id : str):
         pipeline = next((p for p in self.pipelines if p.id == pipeline_id), None)
@@ -52,6 +51,16 @@ class PipelineOrchestrator:
         
         self._cleanup_pipeline(pipeline)
 
+    def _run_task(self, pipeline : Pipeline, task : PipelineTask, idx : int):
+        task.started_at = time()
+        task.strategy.run(
+            task_name = task.name,
+            task_cmd = task.cmd,
+            log_producer = task.producer,
+            on_success=lambda: self._on_task_success(pipeline, idx),
+            on_failure=lambda: self._on_task_failure(pipeline, idx)
+        )
+
     def _next_task(self, pipeline, idx):
         if idx >= len(pipeline.tasks):
             pipeline.handler = PipelineState.DONE
@@ -60,11 +69,7 @@ class PipelineOrchestrator:
         task = pipeline.tasks[idx]
         task.handler.transition(TaskState.RUNNING)
 
-        task.strategy.run(
-            task,
-            on_success=lambda: self._on_task_success(pipeline, idx),
-            on_failure=lambda: self._on_task_failure(pipeline, idx)
-        )
+        self._run_task(pipeline, task, idx)
 
         # allow external syncing mechanism : all tasks may be run simultaneously
         if isinstance(task.strategy, ExternalStrategy):
@@ -72,14 +77,13 @@ class PipelineOrchestrator:
 
     def _on_task_success(self, pipeline: Pipeline, idx: int):
         next_idx = idx + 1
-
         task = pipeline.tasks[idx]
-        task.strategy.cleanup(task)
-
+        task.strategy.cleanup(task.name)
+        
         # first check if early_exit has bee trigger meanwhile
         if self._early_exit.is_set():
             return
-
+        
         if task.after_complete:
             task.after_complete(task.name)
 
@@ -89,9 +93,6 @@ class PipelineOrchestrator:
             if task.early_exit_on_success():
                 self.early_exit()
                 return
-        elif task.early_exit_on_success:
-            self.early_exit()
-            return
 
         if next_idx >= len(pipeline.tasks):
             pipeline.handler.transition(PipelineState.SUCCESS)
@@ -105,7 +106,7 @@ class PipelineOrchestrator:
         pipeline.handler.transition(PipelineState.FAILED)
         self._on_pipeline_failure(pipeline.id, f'task {task.name} failed')
 
-        task.strategy.cleanup(task)
+        task.strategy.cleanup(task.name)
         for task in pipeline.tasks[idx + 1:]:
             if task.cancellable:
                 task.handler.transition(TaskState.CANCELED)
@@ -128,7 +129,7 @@ class PipelineOrchestrator:
                 task.handler.transition(TaskState.CANCELED)
             elif (task.state == TaskState.RUNNING
                     and self.cancel_policy == CancelPolicy.CANCEL_ALL):
-                task.strategy.cleanup(task)
+                task.strategy.cleanup(task.name)
 
         if self.cancel_policy == CancelPolicy.CANCEL_ALL:
             if is_early_exit:

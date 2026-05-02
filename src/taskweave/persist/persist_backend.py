@@ -2,10 +2,9 @@ from typing import Any, Protocol, IO, TextIO, Deque
 from pathlib import Path
 from dataclasses import dataclass
 
-from .output_type import OutputType
-
+from taskweave.messages import OutputType
 from taskweave.context import get_app_context
-config, constants = get_app_context()
+config, constants, args = get_app_context()
 
 class PersistBackend(Protocol):
     def write(self, source_id: str, line: str, output_type: OutputType) -> None:

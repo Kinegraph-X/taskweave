@@ -1,10 +1,11 @@
 from typing import Any, Generator
 from dataclasses import dataclass, field
-from .output_type import OutputType
 from .line_extractor import RExtractor
-from .persist_strategy import PersistStrategy, PersistNone
 from .json_schema import JsonSchema
 from .parse_result import ParseResult
+
+from taskweave.messages import OutputType
+from taskweave.persist import PersistStrategy, PersistNone
 
 @dataclass(kw_only=True)
 class Classifier:

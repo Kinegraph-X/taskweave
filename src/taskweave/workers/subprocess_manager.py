@@ -3,6 +3,7 @@ from threading import Thread
 from subprocess import Popen, PIPE, STDOUT
 from typing import Callable
 
+from taskweave.utils import StrSerializable
 from taskweave.messages import LogEvent, LogProducer, LogEventProducer
 from .worker_pool import WorkerPool
 
@@ -12,22 +13,23 @@ class SubProcessManager:
     # Minimal single-process manager — no pool, no queue.
     # Contrast with WorkerManager which handles concurrent workers via max_count.
     # Both implement WorkerPool 
-    source_id : str
+    source_id : str = field(default_factory = str)
     producer: LogProducer = field(default_factory=LogEventProducer)
     _on_log_cb: Callable[[LogEvent], None] | None = field(init=False, default=None)
     _process: Popen | None = field(init=False, default=None)
     _thread: Thread | None = field(init=False, default=None)
 
-    def subscribe_to_log(self, cb: Callable[[LogEvent], None]) -> None:
+    def subscribe_to_logs(self, cb: Callable[[LogEvent], None]) -> None:
         self._on_log_cb = cb
 
     def add_worker(
             self,
             *,
-            name: str,
-            args_list: list[str],
+            name: str | StrSerializable,
+            args_list: list[str | StrSerializable],
             on_success: Callable | None = None,
             on_failure: Callable | None = None,
+            on_log : Callable | None = None,
             producer : LogProducer | None
         ) -> None:
         # name discarded — single process, no pool to register to
@@ -43,11 +45,12 @@ class SubProcessManager:
 
     def _start(
             self,
-            args_list : list[str],
+            args_list : list[str | StrSerializable],
             on_success: Callable | None = None,
             on_failure: Callable | None = None,
         ) -> None:
-        self._process = Popen(args_list, stdout=PIPE, stderr=STDOUT, text=True)
+        cmd = [str(instr) for instr in args_list]
+        self._process = Popen(cmd, stdout=PIPE, stderr=STDOUT, text=True)
         self._thread = Thread(
             target=self._poll_stdout,
             args=(on_success, on_failure),
@@ -71,3 +74,5 @@ class SubProcessManager:
             on_success()
         elif on_failure:
             on_failure()
+
+    def wait_all(self) -> None: ...

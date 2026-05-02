@@ -1,10 +1,10 @@
-from typing import cast
+from typing import cast, Callable
 import threading
 from uuid import uuid4
 from time import time, sleep
 from .session import Session
 from taskweave.context import Config, get_app_context
-config, constants = get_app_context()
+config, constants, args = get_app_context()
 from taskweave.snapshots import PipelineFailure
 from taskweave.info_stream import StreamWriter
 from taskweave.snapshots import SessionSnapshot
@@ -12,36 +12,41 @@ from taskweave.pipeline import PipelineOrchestrator, Pipeline
 from taskweave.tasks import CancelPolicy, Task, SubprocessStrategy
 from taskweave.messages import MsgType, LogEvent, SourceType
 from taskweave.states import SessionState, TaskState, PipelineState
-from taskweave.workers import WorkerManager, SubProcessManager
+from taskweave.workers import WorkerPool, WorkerManager, SubProcessManager
 from taskweave.logging import LogStore
+from taskweave.utils import StrAccumulator
 
 class SessionManager:
     def __init__(
             self,
-            config : Config,
+            *,
+            config : Config | None = None,
+            on_event : Callable | None = None,
             cancel_policy : CancelPolicy = CancelPolicy.CANCEL_PENDING_ONLY
             ):
         self.session = Session(
             # config.media_path,
             # config.keywords,
         )
-        self.stream_writer = StreamWriter()
+        self.stream_writer = StreamWriter(on_event = on_event)
         self.orchestrator = PipelineOrchestrator(
             self.session.id,
             self.log_failure,
             cancel_policy
         )
         self.session.pipelines = self.orchestrator.pipelines
-        self.managers : list[WorkerManager] = []
+        self._managers : list[WorkerPool] = []
         self.log_store = LogStore(log_dir = constants.log_folder)
 
-    def start_session(self) -> None:
+    def start(self) -> None:
         self.log_store.cleanup()
         self.session.started_at = time()
         self.session.state = SessionState.RUNNING
         self.orchestrator.start_all_pipelines()
+        for manager in self._managers:
+            manager.wait_all()
 
-    def stop_session(self) -> None:
+    def stop(self) -> None:
         self.session.state = SessionState.STOPPING
         self.orchestrator.graceful_stop()
         
@@ -73,11 +78,17 @@ class SessionManager:
                 source_id = task_spec.name,
                 timestamp=time()
             ))
+        
         # get name allowing ordering on disk
         task_name = self.log_store.register(self.session.id, task_spec.name)
         task_spec.name = task_name
-        self.orchestrator.add_task(pipeline_id, task_spec, on_transition)
+
+        # synchronize logging and persitance
+        on_cleanup = self.handle_task_persitance(task_spec)
         self.subscribe_to_manager(task_spec)
+
+        # launch task
+        self.orchestrator.add_task(pipeline_id, task_spec, on_transition, on_cleanup)
 
     # keeps track of managers
     # and ensures stream_writer subscriptions to manager._on_log_cb are unique
@@ -85,10 +96,17 @@ class SessionManager:
         # compatibility between implementations of TaskStrategy
         if isinstance(task.strategy, SubprocessStrategy):
             # legit cast as manager can't be None in that case
-            cast(SubProcessManager, task.manager).source_id = str(task.name)
-        if  task.manager and task.manager not in self.managers:
-            task.manager.subscribe_to_logs(self.stream_writer._on_event)
-            self.managers.append(task.manager)
+            cast(SubProcessManager, task.strategy.manager).source_id = str(task.name)
+        if  task.strategy.manager and task.strategy.manager not in self._managers:
+            task.strategy.manager.subscribe_to_logs(self.stream_writer._on_event)
+            self._managers.append(task.strategy.manager)
+
+    def handle_task_persitance(self, task_spec : Task) -> Callable | None:
+        if task_spec.persist:
+            self.stream_writer.register(task_spec.persist.write)
+            return lambda : self.stream_writer.unregister_sink(task_spec.name)
+        
+        return None
 
     def _wait_for_stop(self) -> None:
         while any(
