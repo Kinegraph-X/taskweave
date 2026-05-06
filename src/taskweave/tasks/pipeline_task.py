@@ -3,7 +3,7 @@ from typing import List, Callable, cast
 from dataclasses import dataclass
 
 from .task import Task
-from .task_strategy import ExecutionStrategy, LocalProcessStrategy, SubprocessStrategy
+from .task_strategy import TaskRunner, ExecutionStrategy, PoolTaskRunner, SubprocessTaskRunner
 
 from taskweave.snapshots import TaskSnapshot
 from taskweave.states import TaskState, Lifecycle, CleanupStrategy, task_transitions
@@ -24,6 +24,7 @@ class PipelineTask:
         
         self.cmd: List[str | StrSerializable] = task_spec.cmd
         self.strategy : ExecutionStrategy  = task_spec.strategy
+        self._runner : TaskRunner = task_spec._runner
         self.producer = task_spec.producer
         self.after_complete : Callable | None = task_spec.after_complete
         self.early_exit_on_success : Callable | None = task_spec.early_exit_on_success

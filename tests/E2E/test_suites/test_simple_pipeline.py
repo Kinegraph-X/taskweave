@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from taskweave.session import SessionManager
-from taskweave.tasks import Task, LocalProcessStrategy
+from taskweave.tasks import Task, PoolTaskRunner
 
 
 VALIDATION_FILE = Path("validation_result.json")
@@ -28,14 +28,14 @@ def test_pipeline_early_exit(tmp_path):
     # --- FETCH ---
     session.add_task(pipeline_id, Task(
         name="fetch",
-        strategy=LocalProcessStrategy(),
+        strategy=PoolTaskRunner(),
         command=["python", "fetch.py"],
     ))
 
     # --- VALIDATE ---
     session.add_task(pipeline_id, Task(
         name="validate",
-        strategy=LocalProcessStrategy(),
+        strategy=PoolTaskRunner(),
         command=["python", "validate.py"],
         on_complete=lambda: context.update(
             json.loads(Path("validation_result.json").read_text())
@@ -46,7 +46,7 @@ def test_pipeline_early_exit(tmp_path):
     # --- EXPORT (ne doit PAS s'exécuter) ---
     session.add_task(pipeline_id, Task(
         name="export",
-        strategy=LocalProcessStrategy(),
+        strategy=PoolTaskRunner(),
         command=["python", "export.py"],
     ))
 

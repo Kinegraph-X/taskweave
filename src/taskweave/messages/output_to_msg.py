@@ -5,6 +5,7 @@ _OUTPUT_TO_MSG: dict[OutputType, MsgType] = {
     OutputType.PROGRESS :   MsgType.PROGRESS,
     OutputType.LOG_LINE :   MsgType.LOG_LINE,
     OutputType.BANNER :     MsgType.BANNER,
-    OutputType.VERBOSE :   MsgType.BANNER
+    OutputType.VERBOSE :   MsgType.BANNER,
+    OutputType.ERROR :      MsgType.ERROR
     # DISCARD absent — no LogEvent produced
 }

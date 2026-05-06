@@ -2,7 +2,7 @@ import time
 from typing import List, Callable
 from dataclasses import dataclass, field
 
-from .task_strategy import ExecutionStrategy, LocalProcessStrategy, SubprocessStrategy
+from .task_strategy import ExecutionStrategy, SynchronousStrategy, TaskRunner, NoOpRunner
 
 from taskweave.persist import PersistStrategy
 from taskweave.workers import WorkerManager, WorkerPool
@@ -17,7 +17,7 @@ class Task:
     #         name: str,
     #         # manager: WorkerPool | None,     # execution mecanic
     #         cmd: List[str | StrSerializable],
-    #         strategy : ExecutionStrategy = SubprocessStrategy(),
+    #         strategy : ExecutionStrategy = SubprocessTaskRunner(),
     #         producer : LogProducer = LogEventProducer(),
     #         after_complete : Callable | None = None,
     #         early_exit_on_success : bool | Callable = False,
@@ -34,7 +34,8 @@ class Task:
         # self.cancellable: bool = cancellable
     name : str | StrSerializable
     cmd: List[str | StrSerializable]
-    strategy : ExecutionStrategy
+    strategy : ExecutionStrategy = field(default_factory = SynchronousStrategy)
+    _runner : TaskRunner = field(default = NoOpRunner(), init = False)
     producer : LogProducer = field(default_factory = LogEventProducer)
     persist : PersistStrategy | None = None
     after_complete : Callable | None = None

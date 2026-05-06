@@ -6,3 +6,4 @@ class OutputType(Enum):
     BANNER = "banner" # → LogEvent(MsgType.LOG_HEADER)
     VERBOSE = "verbose"
     DISCARD = "discard"    # → disk only, pas d'event
+    ERROR = "error"

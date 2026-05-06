@@ -3,7 +3,7 @@ from pathlib import Path
 from collections import defaultdict
 
 from taskweave.session import SessionManager
-from taskweave.tasks import Task, LocalProcessStrategy
+from taskweave.tasks import Task, PoolTaskRunner
 from taskweave.workers import WorkerManager
 
 
@@ -31,14 +31,14 @@ def test_multi_pipeline_with_sync(tmp_path):
         # --- FETCH ---
         session.add_task(pipeline_id, Task(
             name="fetch",
-            strategy=LocalProcessStrategy(max_count=4),
+            strategy=PoolTaskRunner(max_count=4),
             command=["python", "fetch.py"],
         ))
 
         # --- VALIDATE (point de sync global) ---
         session.add_task(pipeline_id, Task(
             name="validate",
-            strategy=LocalProcessStrategy(manager=validate_manager),
+            strategy=PoolTaskRunner(manager=validate_manager),
             command=["python", "validate.py"],
             on_complete=lambda ctx=context: ctx.update(
                 json.loads(Path("validation_result.json").read_text())
@@ -49,7 +49,7 @@ def test_multi_pipeline_with_sync(tmp_path):
         # --- EXPORT ---
         session.add_task(pipeline_id, Task(
             name="export",
-            strategy=LocalProcessStrategy(),
+            strategy=PoolTaskRunner(),
             command=["python", "export.py"],
         ))
 

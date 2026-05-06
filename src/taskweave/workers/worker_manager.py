@@ -1,17 +1,23 @@
 from typing import Callable, List
 import os, sys, multiprocessing, threading, traceback
-from multiprocessing import get_context, Queue
+from multiprocessing import get_context
+from queue import Queue
 from collections import deque
+from time import time, sleep
 
 from .worker_logger import WorkerLogger
 from .worker_status import WorkerStatus
 from .basic_worker import BasicWorker
 from .work_item import WorkItem
+from .cancel_intent import CancelIntent
+from .completed_task import CompletedTask
+from .task_outcome import TaskOutcome
+from .final_status import FinalStatus
 
 from taskweave.context import get_app_context
 config, constants, cmd_line_args = get_app_context()
 from taskweave.states import WorkerState, WorkerContext
-from taskweave.messages import LogProducer
+from taskweave.messages import LogEvent, LogProducer, MsgType, SourceType
 # if getattr(sys, 'frozen', False):
 
 # ctx = get_context('spawn')  # Explicitly get a new context with 'spawn'
@@ -22,17 +28,24 @@ if __name__ == "__main__":
 # curl -d "{\"name\" : \"server\"}" -H "Content-Type:application/json" -X POST http://localhost:3001/start_worker
 
 class WorkerManager:
-    def __init__(self, max_count = 4):
-        self.workers = {}
+    def __init__(
+            self,
+            max_count : int = 4,
+            _completion_queue : Queue[CancelIntent | CompletedTask] | None = None
+            ):
+        self.workers : dict[str, BasicWorker] = {}
         # self.message_queues = {}
-        self._message_queue : Queue = multiprocessing.Queue()
+        self._message_queue : multiprocessing.Queue[LogEvent] = multiprocessing.Queue()
         self.worker_ctx : dict[str, WorkerContext] = {}
-        self.on_log_cbs = {}
-        self.on_success_cbs = {}
-        self.on_failure_cbs = {}
-        self.completion_threads = {}
+        self.on_log_cbs : dict[str, Callable] = {}
+        self.on_success_cbs : dict[str, Callable] = {}
+        self.on_failure_cbs : dict[str, Callable] = {}
+        self.on_cancel_cbs : dict[str, Callable] = {}
+        self.completion_threads : dict[str, threading.Thread] = {}
         self.max_count = max_count
         self._pending: deque[WorkItem] = deque()
+
+        self._completion_queue : Queue[CancelIntent | CompletedTask] = Queue() if _completion_queue is None else _completion_queue
         self._dispatch_thread = threading.Thread(
             target=self._dispatch_loop, daemon=True
         )
@@ -58,8 +71,9 @@ class WorkerManager:
             args_list : List[str],
             on_success : Callable | None = None,
             on_failure : Callable | None = None,
+            on_cancel : Callable | None = None,
             on_log : Callable | None = None,
-            producer : LogProducer | None
+            producer : LogProducer | None = None
         ):
         # allow passing serializable objects references
         name = str(name)
@@ -67,11 +81,11 @@ class WorkerManager:
             self._pending.append(WorkItem(name, args_list, on_success, on_failure, producer))
             return 
         else:
-            self.reset_worker_instance(name, args_list, on_success, on_failure, on_log, producer)
+            self.reset_worker_instance(name, args_list, on_success, on_failure, on_cancel, on_log, producer)
             
         return self.start_worker(name)
 
-    def reset_worker_instance(self, name, args_list, on_success, on_failure, on_log, producer):
+    def reset_worker_instance(self, name, args_list, on_success, on_failure, on_cancel, on_log, producer):
         # allow passing serializable objects references
         args_list = [str(part) for part in args_list]
         self.workers[name] = BasicWorker(
@@ -85,6 +99,7 @@ class WorkerManager:
         self.worker_ctx[name] = WorkerContext(name = name)
         self.on_success_cbs[name] = on_success # on_success : None is handled in completion_thread
         self.on_failure_cbs[name] = on_failure # on_failure : None is handled in completion_thread
+        self.on_cancel_cbs[name] = on_cancel #  on_cancel : None is handled in _stop_worker
         # dual logic : direct cb (scoped on worker) or subscription (centralized at manager level)
         if on_log:
                 self.on_log_cbs[name] = on_log
@@ -98,21 +113,36 @@ class WorkerManager:
 
     def start_worker(self, name):
         self._assert_transition(name, WorkerState.PENDING)
-        with self._lock:
-            self._active += 1
-            self._done.clear()
+        
         self.workers[name].start()
         self.worker_ctx[name].set_running("start worker")
         self.completion_threads[name].start()
+        if self._active == 0:
+            with self._lock:
+                self._active += 1
+                self._done.clear()
+                self._collect_results()
+        else:
+            with self._lock:
+                self._active += 1
+                self._done.clear()
         return self.format_status(name, f"{self.worker_ctx[name].state.value}")
 
     def stop_worker(self, name):
+        self._completion_queue.put(CancelIntent(name = name))
+
+    def _stop_worker(self, name):
         self._assert_transition(name, WorkerState.RUNNING)
         worker = self.workers[name]
         # allow calling stop just to ensure proper exit
         if worker.is_alive():
             worker.terminate()
+        with self._lock:
+            self._active -= 1
         self.worker_ctx[name].state = WorkerState.STOPPED
+
+        if self.on_cancel_cbs[name]:
+            self._execute_callback(name, self.on_cancel_cbs[name], FinalStatus.STOPPED)
         # no need to kill self.completion_threads[name], it's not a loop
         status_obj = self.format_status(name, f"{name} {self.worker_ctx[name].state.value}")
         # self.reset_worker_instance(name)
@@ -130,7 +160,7 @@ class WorkerManager:
         self._assert_transition(name, WorkerState.STOPPED)
         worker = self.workers[name]
         worker.terminate()
-        self.worker_ctx[name].set_stopped('worker sopped and removed')
+        self.worker_ctx[name].set_stopped('worker stopped and removed')
         status_obj = self.format_status(name, f"{name} {self.worker_ctx[name].state.value}")
         self.workers.pop(name)
         return status_obj
@@ -171,6 +201,70 @@ class WorkerManager:
             if "central_queue" in self.on_log_cbs.keys():
                 self.on_log_cbs["central_queue"](event)
 
+    def _collect_results(self):
+        completed_tasks : set[str] = ()
+        while self._active > 0:
+            result = self._completion_queue.get()
+            name = result.name
+            worker = self.worker[name]
+            if not worker:
+                self._completion_queue.put(result)
+                sleep(.01)
+                continue
+
+            if isinstance(CancelIntent, result) and not name in completed_tasks:
+                self._stop_worker(name)
+                continue
+            elif isinstance(CompletedTask, result):
+                completed_tasks.add(name)
+
+            if worker.success_event.is_set() and self.on_success_cbs[name]:
+                self._execute_callback(name, self.on_success_cbs[name], FinalStatus.SUCCESS)
+            elif self.on_failure_cbs[name]:
+                self._execute_callback(name, self.on_failure_cbs[name], FinalStatus.FAILURE)
+                
+            self._cleanup(name)
+            
+            try:
+                if self._pending:
+                    task = self._pending.popleft()
+                    self.add_worker(task.name, task.args_list, task.on_success, task.on_failure, task.producer)
+            except Exception as e:
+                print(f"WorkerManager._handle_worker_completion thread for {name} raised : {e} when starting the '{task.name}' pending task")
+                print(traceback.format_exc())
+            finally:
+                with self._lock:
+                    self._active -= 1
+                    if self._active == 0:
+                        self._done.set()
+
+    def _execute_callback(self, name : str, cb : Callable, final_status : FinalStatus):
+        outcome : TaskOutcome = TaskOutcome(
+            name = name,
+            status = final_status,
+            error = None
+        )
+        try:
+            cb(outcome)
+        except Exception as e:
+            stacktrace = traceback.format_exc()
+            event = LogEvent(
+                msg_type = MsgType.ERROR,
+                msg = stacktrace,
+                source_id=name,
+                source_type = SourceType.TASK,
+                timestamp = time()
+            )
+            for worker, log_cb in self.on_log_cbs.items():
+                if event.source_id == worker:
+                    log_cb(event)
+
+            if "central_queue" in self.on_log_cbs.keys():
+                self.on_log_cbs["central_queue"](event)
+
+            print(f"WorkerManager._handle_worker_completion thread for {name} raised : '{e}' when calling completion cbs")
+            print(stacktrace)
+
     def _handle_worker_completion(self, name):
         try:
             worker = self.workers[name]
@@ -178,29 +272,7 @@ class WorkerManager:
         except Exception as e:
             print(f"WorkerManager._handle_worker_completion thread for {name} raised : '{e}' when joining process")
         
-        try:
-            if worker.success_event.is_set() and self.on_success_cbs[name]:
-                # print("here")
-                self.on_success_cbs[name]()
-            elif self.on_failure_cbs[name]:
-                self.on_failure_cbs[name]()
-        except Exception as e:
-            print(f"WorkerManager._handle_worker_completion thread for {name} raised : '{e}' when calling completion cbs")
-            print(traceback.format_exc())
-        self._cleanup(name)
-        
-        try:
-            if self._pending:
-                task = self._pending.popleft()
-                self.add_worker(task.name, task.args_list, task.on_success, task.on_failure, task.producer)
-        except Exception as e:
-            print(f"WorkerManager._handle_worker_completion thread for {name} raised : {e} when starting the '{task.name}' pending task")
-            print(traceback.format_exc())
-        finally:
-            with self._lock:
-                self._active -= 1
-                if self._active == 0:
-                    self._done.set()
+        self._completion_queue.put(CompletedTask(name = name))
     
     def wait_all(self) -> None:
         self._done.wait()

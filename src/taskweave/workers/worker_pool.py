@@ -11,6 +11,8 @@ class WorkerPool(Protocol):
         args_list: list[str],
         on_success: Callable | None = None,
         on_failure: Callable | None = None,
+        on_cancel: Callable | None = None,
+        on_log : Callable | None = None,
         producer : LogProducer | None
     ) -> None: ...
     

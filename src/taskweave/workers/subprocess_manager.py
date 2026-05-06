@@ -15,7 +15,7 @@ class SubProcessManager:
     # Both implement WorkerPool 
     source_id : str = field(default_factory = str)
     producer: LogProducer = field(default_factory=LogEventProducer)
-    _on_log_cb: Callable[[LogEvent], None] | None = field(init=False, default=None)
+    _on_log_cb: Callable[[LogEvent], None] = field(default = lambda evt: None)
     _process: Popen | None = field(init=False, default=None)
     _thread: Thread | None = field(init=False, default=None)
 
@@ -29,9 +29,11 @@ class SubProcessManager:
             args_list: list[str | StrSerializable],
             on_success: Callable | None = None,
             on_failure: Callable | None = None,
+            on_cancel : Callable | None = None,
             on_log : Callable | None = None,
             producer : LogProducer | None
         ) -> None:
+        self.on_cancel = on_cancel
         # name discarded — single process, no pool to register to
         self._start(args_list, on_success, on_failure)
 
@@ -39,6 +41,8 @@ class SubProcessManager:
         # name discarded
         if self._process:
             self._process.terminate()
+        if self.on_cancel:
+            self.on_cancel()
 
     def remove_worker(self, name: str) -> None:
         pass  # noop
@@ -67,7 +71,7 @@ class SubProcessManager:
         assert self._process.stdout is not None
 
         for line in self._process.stdout:
-            self.producer.on_line(source_id = self.source_id, line=line.rstrip())
+            self._on_log_cb(self.producer.on_line(source_id = self.source_id, line=line.rstrip()))
 
         self._process.wait()
         if self._process.returncode == 0 and on_success:

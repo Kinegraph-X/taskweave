@@ -1,4 +1,4 @@
-from typing import Pattern, cast, TypedDict, Callable, List
+from typing import Pattern, cast, TypedDict, Callable, List, Set
 from dataclasses import dataclass, field, asdict, is_dataclass
 from pathlib import Path
 from os import path
@@ -18,7 +18,7 @@ class Encoder(json.JSONEncoder):
         if is_dataclass(obj):
             return asdict(obj)
         if isinstance(obj, StrSerializable):
-            return str(obj)  # ou int(obj)
+            return str(obj)
         return super().default(obj)
 
 
@@ -27,10 +27,11 @@ class LogStore:
     log_dir: Path
     log_index: Path = Path(f"{constants.log_index_filename}{constants.log_index_extension}")
     max_age : float = float(49 * 24 * 3600 * 1000)
+    _known_names : set[str] = Set()
 
     # generates log_id, write in index, returns log_id
     def register(self, session_id: str, task_name: str | StrSerializable) -> str | StrSerializable:
-        log_filename = make_log_id(task_name)
+        log_filename = self._get_name(task_name, session_id)
         index_path = path.join(self.log_dir, self.log_index)
         if path.exists(index_path):
             try :
@@ -57,6 +58,13 @@ class LogStore:
 
         return log_filename
     
+    def _get_name(self, task_name: str | StrSerializable, session_id: str):
+        name = make_log_id(task_name, session_id)
+        while name in self._known_names:
+            name = make_log_id(task_name, session_id)
+        self._known_names.add(str(name))
+        return name
+
     # session_id → session_data
     def resolve(self, session_id: str) -> SessionData | None:
         index_path = path.join(self.log_dir, self.log_index)

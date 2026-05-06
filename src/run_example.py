@@ -3,7 +3,7 @@ from taskweave.dialect import FieldSchema, JsonSchemaType, PersistStrategy, Pers
 from taskweave import FileBackend
 from taskweave.context import constants
 from taskweave.workers import ClassifyingProducer
-from taskweave.tasks import Task, LocalProcessStrategy
+from taskweave.tasks import Task, PoolTaskRunner
 
 # Declare fields
 frame   = FieldSchema("frame",  JsonSchemaType.INT)
@@ -40,7 +40,7 @@ ffmpeg_classifier = Classifier(
 
 task = Task(
     name="ffmpeg_extract",
-    strategy=LocalProcessStrategy(),
+    strategy=PoolTaskRunner(),
     command=["ffmpeg", "-i", "input.mp4", ...],
     producer=ClassifyingProducer(classifier=ffmpeg_classifier),
 )

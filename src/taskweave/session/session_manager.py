@@ -6,10 +6,10 @@ from .session import Session
 from taskweave.context import Config, get_app_context
 config, constants, args = get_app_context()
 from taskweave.snapshots import PipelineFailure
-from taskweave.info_stream import StreamWriter
+from taskweave.info_stream import StreamWriter, SinkScope
 from taskweave.snapshots import SessionSnapshot
 from taskweave.pipeline import PipelineOrchestrator, Pipeline
-from taskweave.tasks import CancelPolicy, Task, SubprocessStrategy
+from taskweave.tasks import CancelPolicy, Task, PoolStrategy, PoolTaskRunner, TaskRunner
 from taskweave.messages import MsgType, LogEvent, SourceType
 from taskweave.states import SessionState, TaskState, PipelineState
 from taskweave.workers import WorkerPool, WorkerManager, SubProcessManager
@@ -36,7 +36,7 @@ class SessionManager:
             cancel_policy
         )
         self.session.pipelines = self.orchestrator.pipelines
-        self._managers : list[WorkerPool] = []
+        self._execution_pools : dict[str, TaskRunner] = {}
         self.log_store = LogStore(log_dir = constants.log_folder)
 
     def start(self) -> None:
@@ -44,8 +44,8 @@ class SessionManager:
         self.session.started_at = time()
         self.session.state = SessionState.RUNNING
         self.orchestrator.start_all_pipelines()
-        for manager in self._managers:
-            manager.wait_all()
+        for runner in self._execution_pools.values():
+            runner.manager.wait_all()
 
     def stop(self) -> None:
         self.session.state = SessionState.STOPPING
@@ -80,31 +80,34 @@ class SessionManager:
                 timestamp=time()
             ))
         
-        # get name allowing ordering on disk
-        task_name = self.log_store.register(self.session.id, task_spec.name)
-        task_spec.name = task_name
+        # ensures ordering on disk and unicity on task names
+        task_spec.name = self.log_store.register(self.session.id, task_spec.name)
 
         # synchronize logging and persitance
-        on_cleanup = self.handle_task_persitance(task_spec)
-        self.subscribe_to_manager(task_spec)
+        on_cleanup = self._handle_task_persitance(task_spec)
+        # a task can't run until having acquired an explicit runner
+        self._define_runner(task_spec)
 
         # launch task
         self.orchestrator.add_task(pipeline_id, task_spec, on_transition, on_cleanup)
+    
+    def add_pool(self, pool_name : str, max_parallel : int = 4) -> PoolStrategy:
+        manager = WorkerManager(max_count = max_parallel)
+        manager.subscribe_to_logs(self.stream_writer._on_event)
+        self._execution_pools[pool_name] = PoolTaskRunner(manager = manager)
+        return PoolStrategy(pool_name = pool_name)
 
-    # keeps track of managers
-    # and ensures stream_writer subscriptions to manager._on_log_cb are unique
-    def subscribe_to_manager(self, task : Task):
-        # compatibility between implementations of TaskStrategy
-        if isinstance(task.strategy, SubprocessStrategy):
-            # legit cast as manager can't be None in that case
-            cast(SubProcessManager, task.strategy.manager).source_id = str(task.name)
-        if  task.strategy.manager and task.strategy.manager not in self._managers:
-            task.strategy.manager.subscribe_to_logs(self.stream_writer._on_event)
-            self._managers.append(task.strategy.manager)
+    # pool tasks have the same _runner, synchronous tasks have a runner which mimics pools
+    def _define_runner(self, task : Task) -> None :
+        task._runner = task.strategy.make_runner(self._execution_pools)
 
-    def handle_task_persitance(self, task_spec : Task) -> Callable | None:
+    def _handle_task_persitance(self, task_spec : Task) -> Callable | None:
         if task_spec.persist:
-            self.stream_writer.register(task_spec.persist.write)
+            self.stream_writer.register_sink(
+                task_spec.persist.write,
+                scope = SinkScope.SCOPED,
+                source_id = task_spec.name
+            )
             return lambda : self.stream_writer.unregister_sink(task_spec.name)
         
         return None
@@ -158,7 +161,7 @@ class SessionManager:
         )
     
     def reset(self, on_event, cancel_policy : CancelPolicy = CancelPolicy.CANCEL_PENDING_ONLY):
-        self.pipelines = {}
+        self.pipelines : dict[str, Pipeline] = {}
         self.session = Session()
         self.stream_writer = StreamWriter(on_event = on_event)
         self.orchestrator = PipelineOrchestrator(
@@ -167,7 +170,7 @@ class SessionManager:
             cancel_policy
         )
         self.session.pipelines = self.orchestrator.pipelines
-        self._managers : list[WorkerPool] = []
+        self._execution_pools = {}
         self.log_store = LogStore(log_dir = constants.log_folder)
 
     def ensure_context_safe(self):

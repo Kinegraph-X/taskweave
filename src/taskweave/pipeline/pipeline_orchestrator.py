@@ -53,7 +53,7 @@ class PipelineOrchestrator:
 
     def _run_task(self, pipeline : Pipeline, task : PipelineTask, idx : int):
         task.started_at = time()
-        task.strategy.run(
+        task._runner.run(
             task_name = task.name,
             task_cmd = task.cmd,
             log_producer = task.producer,
@@ -72,13 +72,13 @@ class PipelineOrchestrator:
         self._run_task(pipeline, task, idx)
 
         # allow external syncing mechanism : all tasks may be run simultaneously
-        if isinstance(task.strategy, ExternalStrategy):
+        if isinstance(task._runner, ExternalStrategy):
             self._next_task(pipeline, idx + 1)
 
     def _on_task_success(self, pipeline: Pipeline, idx: int):
         next_idx = idx + 1
         task = pipeline.tasks[idx]
-        task.strategy.cleanup(task.name)
+        task._runner.cleanup(task.name)
         
         # first check if early_exit has bee trigger meanwhile
         if self._early_exit.is_set():
@@ -106,7 +106,7 @@ class PipelineOrchestrator:
         pipeline.cycle.transition(PipelineState.FAILED)
         self._on_pipeline_failure(pipeline.id, f'task {task.name} failed')
 
-        task.strategy.cleanup(task.name)
+        task._runner.cleanup(task.name)
         for task in pipeline.tasks[idx + 1:]:
             if task.cancellable:
                 task.cycle.transition(TaskState.CANCELED)
@@ -129,7 +129,7 @@ class PipelineOrchestrator:
                 task.cycle.transition(TaskState.CANCELED)
             elif (task.state == TaskState.RUNNING
                     and self.cancel_policy == CancelPolicy.CANCEL_ALL):
-                task.strategy.cleanup(task.name)
+                task._runner.cleanup(task.name)
 
         if self.cancel_policy == CancelPolicy.CANCEL_ALL:
             if is_early_exit:

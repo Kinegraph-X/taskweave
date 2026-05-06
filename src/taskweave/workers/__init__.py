@@ -5,3 +5,7 @@ from .worker_status import WorkerStatus as WorkerStatus
 from .worker_pool import WorkerPool as WorkerPool
 from .subprocess_manager import SubProcessManager as SubProcessManager
 from .work_item import WorkItem as WorkItem
+from .final_status import FinalStatus as FinalStatus
+from .task_outcome import TaskOutcome as TaskOutcome
+from .cancel_intent import CancelIntent as CancelIntent
+from .completed_task import CompletedTask as CompletedTask
