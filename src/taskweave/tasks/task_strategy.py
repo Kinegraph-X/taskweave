@@ -2,6 +2,7 @@ from typing import Callable, Protocol
 from dataclasses import dataclass, field
 import subprocess, threading
 from time import time
+from queue import Queue
 from taskweave.utils import StrSerializable
 from taskweave.workers import WorkerPool, WorkerManager, SubProcessManager
 from taskweave.messages import LogProducer
@@ -53,6 +54,7 @@ class PoolTaskRunner:
 @dataclass(kw_only = True)
 class SubprocessTaskRunner:
     manager : WorkerPool = field(default_factory = SubProcessManager)
+
     def run(
             self,
             *,
@@ -115,16 +117,20 @@ class NoOpRunner:
 
 
 class ExecutionStrategy(Protocol):
-    def make_runner(self, pools : dict[str, TaskRunner]):
+    def make_runner(self, pools : dict[str, TaskRunner], global_completion_queue : Queue):
         raise NotImplementedError
 
 @dataclass(kw_only = True)
 class PoolStrategy:
     pool_name : str
-    def make_runner(self, pools : dict[str, TaskRunner]):
+    def make_runner(self, pools : dict[str, TaskRunner], global_completion_queue : Queue):
         return pools[self.pool_name]
 
 @dataclass(kw_only = True)
 class SynchronousStrategy:
-    def make_runner(self, pools : dict[str, TaskRunner]):
-        return SubprocessTaskRunner()
+    def make_runner(self, pools : dict[str, TaskRunner], global_completion_queue : Queue):
+        return SubprocessTaskRunner(
+            manager = SubProcessManager(
+                _completion_queue = global_completion_queue
+            )
+        )

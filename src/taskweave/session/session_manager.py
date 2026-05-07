@@ -1,5 +1,6 @@
 from typing import cast, Callable
 import os, threading
+from queue import Queue
 from uuid import uuid4
 from time import time, sleep
 from .session import Session
@@ -37,6 +38,7 @@ class SessionManager:
         )
         self.session.pipelines = self.orchestrator.pipelines
         self._execution_pools : dict[str, TaskRunner] = {}
+        self._global_completion_queue : Queue = Queue()
         self.log_store = LogStore(log_dir = constants.log_folder)
 
     def start(self) -> None:
@@ -92,15 +94,23 @@ class SessionManager:
         self.orchestrator.add_task(pipeline_id, task_spec, on_transition, on_cleanup)
     
     def add_pool(self, pool_name : str, max_parallel : int = 4) -> PoolStrategy:
-        manager = WorkerManager(max_count = max_parallel)
+        manager = WorkerManager(
+            max_count = max_parallel,
+            _completion_queue = self._global_completion_queue
+        )
         manager.subscribe_to_logs(self.stream_writer._on_event)
         self._execution_pools[pool_name] = PoolTaskRunner(manager = manager)
         return PoolStrategy(pool_name = pool_name)
 
     # pool tasks have the same _runner, synchronous tasks have a runner which mimics pools
     def _define_runner(self, task : Task) -> None :
-        task._runner = task.strategy.make_runner(self._execution_pools)
+        task._runner = task.strategy.make_runner(
+            self._execution_pools,
+            self._global_completion_queue
+        )
 
+    # tasks without specific log_producer declare persitance mecanism on themselves,
+    # due to decoupling with BasicWorker. (Specific producers are in the "dialect" package)
     def _handle_task_persitance(self, task_spec : Task) -> Callable | None:
         if task_spec.persist:
             self.stream_writer.register_sink(

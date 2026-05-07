@@ -1,4 +1,4 @@
-from typing import Callable, List
+from typing import Callable, List, Set
 import os, sys, multiprocessing, threading, traceback
 from multiprocessing import get_context
 from queue import Queue
@@ -202,7 +202,7 @@ class WorkerManager:
                 self.on_log_cbs["central_queue"](event)
 
     def _collect_results(self):
-        completed_tasks : set[str] = ()
+        completed_tasks : set[str] = Set()
         while self._active > 0:
             result = self._completion_queue.get()
             name = result.name
