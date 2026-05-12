@@ -7,6 +7,8 @@ from .pipeline import Pipeline
 from taskweave.states import PipelineState, TaskState
 from taskweave.tasks import Task, PipelineTask, CancelPolicy, ExternalStrategy
 from taskweave.messages import LogEvent, MsgType
+from taskweave.utils import TaskId
+from taskweave.workers import TaskOutcome, FinalStatus
 
 class PipelineOrchestrator:
     def __init__(
@@ -21,17 +23,17 @@ class PipelineOrchestrator:
         self._early_exit = threading.Event()
         self._sink : Callable | None = None
 
-    def add_pipeline(self, pipeline : Pipeline):
+    def add_pipeline(self, pipeline : Pipeline) -> TaskId:
         self.pipelines.append(pipeline)
         return pipeline.id
     
-    def add_task(self, pipeline_id : str, task : Task, on_change : Callable, on_cleanup : Callable[[], None] | None):
+    def add_task(self, pipeline_id : TaskId, task : Task, on_change : Callable, on_cleanup : Callable[[], None] | None):
         pipeline = next((p for p in self.pipelines if p.id == pipeline_id), None)
         if not pipeline:
             raise ValueError(f'add_task() on non-existing pipeline. pipeline_id is {pipeline_id}')
         pipeline.add_task(task, on_change, on_cleanup)
 
-    def start_pipeline(self, pipeline_id : str):
+    def start_pipeline(self, pipeline_id : TaskId):
         pipeline = next((p for p in self.pipelines if p.id == pipeline_id), None)
         if not pipeline:
             raise ValueError(f'start_pipeline() on non-existing pipeline. pipeline_id is {pipeline_id}')
@@ -44,7 +46,7 @@ class PipelineOrchestrator:
             self._next_task(pipeline, 0)
             pipeline.cycle.transition(PipelineState.RUNNING)
 
-    def stop_pipeline(self, pipeline_id : str):
+    def stop_pipeline(self, pipeline_id : TaskId):
         pipeline = next((p for p in self.pipelines if p.id == pipeline_id), None)
         if not pipeline:
             raise ValueError(f'start_pipeline() on non-existing pipeline. pipeline_id is {pipeline_id}')
@@ -57,8 +59,9 @@ class PipelineOrchestrator:
             task_name = task.name,
             task_cmd = task.cmd,
             log_producer = task.producer,
-            on_success=lambda: self._on_task_success(pipeline, idx),
-            on_failure=lambda: self._on_task_failure(pipeline, idx)
+            on_success = lambda: self._on_task_success(pipeline, idx),
+            on_failure = lambda: self._on_task_failure(pipeline, idx),
+            on_cancel = lambda: task.on_cancel() if task.on_cancel else None
         )
 
     def _next_task(self, pipeline, idx):
@@ -84,8 +87,14 @@ class PipelineOrchestrator:
         if self._early_exit.is_set():
             return
         
-        if task.after_complete:
-            task.after_complete(task.name)
+        if task.on_finally:
+            task.on_finally(
+                TaskOutcome(
+                    name = str(task.name),
+                    status = FinalStatus.SUCCESS,
+                    error = None
+                )
+            )
 
         task.cycle.transition(TaskState.SUCCESS)
 
@@ -104,7 +113,17 @@ class PipelineOrchestrator:
         task = pipeline.tasks[idx]
         task.cycle.transition(TaskState.FAILED)
         pipeline.cycle.transition(PipelineState.FAILED)
-        self._on_pipeline_failure(pipeline.id, f'task {task.name} failed')
+
+        if task.on_finally:
+            task.on_finally(
+                TaskOutcome(
+                    name = str(task.name),
+                    status = FinalStatus.FAILURE,
+                    error = RuntimeError("see task logs")
+                )
+            )
+
+        self._on_pipeline_failure(str(pipeline.id), f'task {task.name} failed')
 
         task._runner.cleanup(task.name)
         for task in pipeline.tasks[idx + 1:]:
@@ -127,9 +146,19 @@ class PipelineOrchestrator:
         for task in pipeline.tasks:
             if task.state == TaskState.PENDING and task.cancellable:
                 task.cycle.transition(TaskState.CANCELED)
+                cancel_reason = f"was cancelable on {'requested graceful stop' if not is_early_exit else 'early exit'}"
             elif (task.state == TaskState.RUNNING
                     and self.cancel_policy == CancelPolicy.CANCEL_ALL):
                 task._runner.cleanup(task.name)
+                cancel_reason = f"forcefully stopped due to {'requested graceful stop' if not is_early_exit else 'early exit'}"
+            if task.on_cancel:
+                task.on_cancel(
+                    TaskOutcome(
+                        name = str(task.name),
+                        status = FinalStatus.CANCELED,
+                        error = Exception(f"task canceled : {cancel_reason}")
+                    )
+                )
 
         if self.cancel_policy == CancelPolicy.CANCEL_ALL:
             if is_early_exit:

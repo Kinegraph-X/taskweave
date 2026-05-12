@@ -1,0 +1,6 @@
+from typing import Protocol
+
+class ControlTransport(Protocol):
+    """Sends a serialized command to a distant process."""
+    def send_raw(self, payload: bytes) -> None: ...
+    def close(self) -> None: ...

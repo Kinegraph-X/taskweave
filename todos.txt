@@ -1,0 +1,91 @@
+Correct Fields not having the "target" field
+
+# taskweave.schemas.fetch — partagé producteur/consommateur
+fetch_schema = Schema(
+    fields=[
+        FieldSchema("status", JsonSchemaType.INT),
+        FieldSchema("url",    JsonSchemaType.STRING),
+    ],
+    output_type=OutputType.PROGRESS
+)
+
+---
+
+Make EventBus generic, to allow :
+
+class NoOpMiniBus:
+    def emit(self, event: LogEvent) -> None:
+        pass  # intentionnellement silencieux
+
+---
+
+Documentation : 
+
+Si, on a — mais l'écosystème Python est fragmenté sur ce point, c'est son péché historique.
+
+
+**Les trois formats qui coexistent**
+
+**reStructuredText** — le format historique, natif Sphinx :
+```python
+def submit(self, task: Task) -> None:
+    """
+    Soumet une tâche à l'orchestrateur.
+
+    :param task: La tâche à soumettre
+    :type task: Task
+    :raises UnboundStrategyError: Si la stratégie n'est pas bindée
+    """
+```
+Verbeux, un peu laid, mais Sphinx le comprend nativement.
+
+**Google style** — le plus lisible à l'œil nu :
+```python
+def submit(self, task: Task) -> None:
+    """
+    Soumet une tâche à l'orchestrateur.
+
+    Args:
+        task: La tâche à soumettre
+
+    Raises:
+        UnboundStrategyError: Si la stratégie n'est pas bindée
+    """
+```
+
+**NumPy style** — verbeux, pour API très riches avec beaucoup de paramètres :
+```python
+def submit(self, task: Task) -> None:
+    """
+    Soumet une tâche à l'orchestrateur.
+
+    Parameters
+    ----------
+    task : Task
+        La tâche à soumettre
+    """
+```
+
+
+**La bonne nouvelle**
+
+Avec les type hints modernes, les types dans la docstring sont redondants — Sphinx et mkdocs les lisent directement depuis les annotations :
+
+```python
+def submit(self, task: Task) -> None:
+    """
+    Soumet une tâche à l'orchestrateur.
+
+    Args:
+        task: La tâche à soumettre  # pas besoin de répéter le type
+
+    Raises:
+        UnboundStrategyError: Si la stratégie n'est pas bindée
+    """
+```
+
+---
+
+**Ce que je te recommande**
+
+Google style + type hints — c'est le plus proche de JSDoc en termes de lisibilité, et **mkdocs + mkdocstrings** le rendu aussi bien que JavaDoc. C'est l'outillage moderne qui a supplanté Sphinx pour les projets récents.

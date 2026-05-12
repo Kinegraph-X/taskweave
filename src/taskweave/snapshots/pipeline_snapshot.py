@@ -6,7 +6,7 @@ from taskweave.utils import StrSerializable
 @dataclass  
 class PipelineSnapshot:
     id : str
-    tasks: dict[str | StrSerializable, TaskSnapshot]
+    tasks: dict[str, TaskSnapshot]
     state : PipelineState
     started_at: float
     elapsed: float

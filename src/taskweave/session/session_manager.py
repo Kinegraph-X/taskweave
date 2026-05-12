@@ -7,6 +7,7 @@ from .session import Session
 from taskweave.context import Config, get_app_context
 config, constants, args = get_app_context()
 from taskweave.snapshots import PipelineFailure
+from taskweave.buses import MiniBus, ObservabilityPolicy
 from taskweave.info_stream import StreamWriter, SinkScope
 from taskweave.snapshots import SessionSnapshot
 from taskweave.pipeline import PipelineOrchestrator, Pipeline
@@ -15,7 +16,7 @@ from taskweave.messages import MsgType, LogEvent, SourceType
 from taskweave.states import SessionState, TaskState, PipelineState
 from taskweave.workers import WorkerPool, WorkerManager, SubProcessManager
 from taskweave.logging import LogStore
-from taskweave.utils import StrAccumulator
+from taskweave.utils import TaskId
 
 class SessionManager:
     def __init__(
@@ -23,16 +24,16 @@ class SessionManager:
             *,
             config : Config | None = None,
             on_event : Callable | None = None,
-            cancel_policy : CancelPolicy = CancelPolicy.CANCEL_PENDING_ONLY
+            cancel_policy : CancelPolicy = CancelPolicy.CANCEL_PENDING_ONLY,
+            observability_policy : ObservabilityPolicy = ObservabilityPolicy.RELAXED
         ):
         self.ensure_context_safe()
         self.session = Session(
             # config.media_path,
             # config.keywords,
         )
-        self.stream_writer = StreamWriter(on_event = on_event)
         self.orchestrator = PipelineOrchestrator(
-            self.session.id,
+            str(self.session.id),
             self.log_failure,
             cancel_policy
         )
@@ -40,6 +41,24 @@ class SessionManager:
         self._execution_pools : dict[str, TaskRunner] = {}
         self._global_completion_queue : Queue = Queue()
         self.log_store = LogStore(log_dir = constants.log_folder)
+        self._observability_policy = observability_policy
+        self.stream_writer, self._log_bus = self._make_broadcast_channel(on_event = on_event)
+
+    def _make_broadcast_channel(
+            self,
+            on_event : Callable | None
+        ) -> tuple[StreamWriter, MiniBus]:
+        """
+        StreamWriter coordonnate external sinks.
+        MiniBus decouples internal producers from StreamWriter.
+        Together: event-channel of the session
+        """
+        writer = StreamWriter(on_event = on_event)
+        log_bus = MiniBus(
+            writer = writer,
+            observability_policy = self._observability_policy
+            )
+        return writer, log_bus
 
     def start(self) -> None:
         self.log_store.cleanup()
@@ -62,7 +81,7 @@ class SessionManager:
         for pipeline in self.orchestrator.pipelines:
             self.orchestrator.stop_pipeline(pipeline.id)
 
-    def add_pipeline(self) -> str:
+    def add_pipeline(self) -> TaskId:
         def on_transition(old: PipelineState, new: PipelineState) -> None:
             self._push_event(LogEvent(
                 msg_type=MsgType.STATE_CHANGE,
@@ -70,20 +89,23 @@ class SessionManager:
                 source_id=pipeline.id,
                 timestamp=time()
             ))
-        pipeline = Pipeline(on_transition, self.session.id)
+        pipeline = Pipeline(on_transition, str(self.session.id))
         return self.orchestrator.add_pipeline(pipeline)
 
-    def add_task(self, pipeline_id : str, task_spec : Task) -> None:
+    def add_task(self, pipeline_id : TaskId, task_spec : Task) -> None:
         def on_transition(old: TaskState, new: TaskState) -> None:
             self._push_event(LogEvent(
                 msg_type = MsgType.STATE_CHANGE,
                 source_type = SourceType.TASK,
-                source_id = task_spec.name,
+                source_id = cast(TaskId, task_spec.name),    # safe as Task.name is cast in post_init
                 timestamp=time()
             ))
         
         # ensures ordering on disk and unicity on task names
-        task_spec.name = self.log_store.register(self.session.id, task_spec.name)
+        task_spec.name = self.log_store.register(
+            self.session.id,
+            cast(TaskId, task_spec.name)    # safe as Task.name is cast in post_init
+        )
 
         # synchronize logging and persitance
         on_cleanup = self._handle_task_persitance(task_spec)
@@ -93,32 +115,42 @@ class SessionManager:
         # launch task
         self.orchestrator.add_task(pipeline_id, task_spec, on_transition, on_cleanup)
     
+    # StreamWriter subscribes to pools once
     def add_pool(self, pool_name : str, max_parallel : int = 4) -> PoolStrategy:
         manager = WorkerManager(
             max_count = max_parallel,
+            log_bus = self._log_bus,
             _completion_queue = self._global_completion_queue
         )
-        manager.subscribe_to_logs(self.stream_writer._on_event)
+        # manager.subscribe_to_logs(self.stream_writer._on_event)
         self._execution_pools[pool_name] = PoolTaskRunner(manager = manager)
         return PoolStrategy(pool_name = pool_name)
 
-    # pool tasks have the same _runner, synchronous tasks have a runner which mimics pools
+    # Pool tasks have the same _runner.
+    # Each synchronous tasks has a runner which mimics pool-runner.
+    # TaskRunner(Protocol) -> (TaskPoolRunner, SubprocessTaskRunner, NoOpRunner)
+    # -> 3rd arg to get_runner ensures log-subscription :
+    #   unique on pool, per task on synchronous subprocess
     def _define_runner(self, task : Task) -> None :
-        task._runner = task.strategy.make_runner(
-            self._execution_pools,
-            self._global_completion_queue
+        task._runner = task.strategy.get_runner(
+            pools = self._execution_pools,
+            global_completion_queue = self._global_completion_queue,
+            event_bus = self._log_bus
         )
 
-    # tasks without specific log_producer declare persitance mecanism on themselves,
-    # due to decoupling with BasicWorker. (Specific producers are in the "dialect" package)
+    # due to decoupling with BasicWorker, tasks without specific log_producer
+    # declare persistance mecanism on themselves,
+    # (Specific producers are in the "dialect" package)
     def _handle_task_persitance(self, task_spec : Task) -> Callable | None:
         if task_spec.persist:
             self.stream_writer.register_sink(
                 task_spec.persist.write,
                 scope = SinkScope.SCOPED,
-                source_id = task_spec.name
+                source_id = TaskId(task_spec.name)
             )
-            return lambda : self.stream_writer.unregister_sink(task_spec.name)
+            return lambda : self.stream_writer.unregister_sink(
+                cast(TaskId, task_spec.name)    # safe as Task.name is cast in post_init
+            )
         
         return None
 
@@ -160,13 +192,13 @@ class SessionManager:
 
     def snapshot(self) -> SessionSnapshot:
         return SessionSnapshot(
-            id=self.session.id,
+            id=str(self.session.id),
             # media_path=self.session.media_path,
             # keywords=self.session.keywords,
             state=self.session.state,
             started_at=self.session.started_at,
             elapsed=time() - self.session.started_at if self.session.started_at else 0,
-            pipelines={p.id : p.snapshot() for p in self.orchestrator.pipelines},
+            pipelines={str(p.id) : p.snapshot() for p in self.orchestrator.pipelines},
             failure_reasons=self.session.failure_reasons
         )
     
@@ -175,7 +207,7 @@ class SessionManager:
         self.session = Session()
         self.stream_writer = StreamWriter(on_event = on_event)
         self.orchestrator = PipelineOrchestrator(
-            self.session.id,
+            str(self.session.id),
             self.log_failure,
             cancel_policy
         )

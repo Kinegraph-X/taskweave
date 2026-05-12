@@ -18,6 +18,8 @@ from taskweave.context import get_app_context
 config, constants, cmd_line_args = get_app_context()
 from taskweave.states import WorkerState, WorkerContext
 from taskweave.messages import LogEvent, LogProducer, MsgType, SourceType
+from taskweave.buses import MiniBus, Heartbeat, HeartbeatConfig
+from taskweave.utils import TaskId
 # if getattr(sys, 'frozen', False):
 
 # ctx = get_context('spawn')  # Explicitly get a new context with 'spawn'
@@ -30,18 +32,24 @@ if __name__ == "__main__":
 class WorkerManager:
     def __init__(
             self,
+            *,
+            log_bus : MiniBus,
             max_count : int = 4,
+            heartbeat_cfg : HeartbeatConfig = HeartbeatConfig(),
             _completion_queue : Queue[CancelIntent | CompletedTask] | None = None
             ):
         self.workers : dict[str, BasicWorker] = {}
         # self.message_queues = {}
         self._message_queue : multiprocessing.Queue[LogEvent] = multiprocessing.Queue()
         self.worker_ctx : dict[str, WorkerContext] = {}
-        self.on_log_cbs : dict[str, Callable] = {}
+        # self.on_log_cbs : dict[str, Callable] = {}
+        self.log_bus = log_bus
         self.on_success_cbs : dict[str, Callable] = {}
         self.on_failure_cbs : dict[str, Callable] = {}
         self.on_cancel_cbs : dict[str, Callable] = {}
         self.completion_threads : dict[str, threading.Thread] = {}
+        self.heartbeat_cfg = heartbeat_cfg
+        self.heartbeats : dict[str, Heartbeat] = {}
         self.max_count = max_count
         self._pending: deque[WorkItem] = deque()
 
@@ -72,20 +80,43 @@ class WorkerManager:
             on_success : Callable | None = None,
             on_failure : Callable | None = None,
             on_cancel : Callable | None = None,
-            on_log : Callable | None = None,
+            # on_log : Callable | None = None,
             producer : LogProducer | None = None
         ):
         # allow passing serializable objects references
         name = str(name)
         if len(self.workers) >= self.max_count:
-            self._pending.append(WorkItem(name, args_list, on_success, on_failure, producer))
+            self._pending.append(
+                WorkItem(
+                    name,
+                    args_list,
+                    on_success,
+                    on_failure,
+                    producer
+                )
+            )
             return 
         else:
-            self.reset_worker_instance(name, args_list, on_success, on_failure, on_cancel, on_log, producer)
+            self.reset_worker_instance(
+                name,
+                args_list,
+                on_success,
+                on_failure,
+                on_cancel,
+                # on_log,
+                producer
+            )
             
         return self.start_worker(name)
 
-    def reset_worker_instance(self, name, args_list, on_success, on_failure, on_cancel, on_log, producer):
+    def reset_worker_instance(
+            self,
+            name,
+            args_list,
+            on_success,
+            on_failure,
+            on_cancel,
+            producer):
         # allow passing serializable objects references
         args_list = [str(part) for part in args_list]
         self.workers[name] = BasicWorker(
@@ -100,18 +131,19 @@ class WorkerManager:
         self.on_success_cbs[name] = on_success # on_success : None is handled in completion_thread
         self.on_failure_cbs[name] = on_failure # on_failure : None is handled in completion_thread
         self.on_cancel_cbs[name] = on_cancel #  on_cancel : None is handled in _stop_worker
+        self.heartbeats[name] = Heartbeat(name, self.log_bus, self.heartbeat_cfg)
         # dual logic : direct cb (scoped on worker) or subscription (centralized at manager level)
-        if on_log:
-                self.on_log_cbs[name] = on_log
+        # if on_log:
+        #         self.on_log_cbs[name] = on_log
         self.completion_threads[name] = threading.Thread(
             target=self._handle_worker_completion, args = (name, ), daemon=True
         )
         self.worker_ctx[name].set_pending("initial state")
 
-    def subscribe_to_logs(self, cb, name : str | None = None):
-        self.on_log_cbs['central_queue'] = cb
+    # def subscribe_to_logs(self, cb : Callable[[LogEvent], None]):
+    #     self.on_log_cbs['central_queue'] = cb
 
-    def start_worker(self, name):
+    def start_worker(self, name : str):
         self._assert_transition(name, WorkerState.PENDING)
         
         self.workers[name].start()
@@ -194,12 +226,7 @@ class WorkerManager:
             event = self._message_queue.get()
             if event is None:
                 return
-            for worker, cb in self.on_log_cbs.items():
-                if event.source_id == worker:
-                    cb(event)
-
-            if "central_queue" in self.on_log_cbs.keys():
-                self.on_log_cbs["central_queue"](event)
+            self.heartbeats[event.name].beat(event)
 
     def _collect_results(self):
         completed_tasks : set[str] = Set()
@@ -249,18 +276,14 @@ class WorkerManager:
         except Exception as e:
             stacktrace = traceback.format_exc()
             event = LogEvent(
-                msg_type = MsgType.ERROR,
-                msg = stacktrace,
-                source_id=name,
+                msg_type = MsgType.CALLBACK_ERROR,
+                msg = f"{e}\n{stacktrace}",
+                source_id = TaskId(name),
                 source_type = SourceType.TASK,
                 timestamp = time()
             )
-            for worker, log_cb in self.on_log_cbs.items():
-                if event.source_id == worker:
-                    log_cb(event)
 
-            if "central_queue" in self.on_log_cbs.keys():
-                self.on_log_cbs["central_queue"](event)
+            self.log_bus.emit(event)
 
             print(f"WorkerManager._handle_worker_completion thread for {name} raised : '{e}' when calling completion cbs")
             print(stacktrace)

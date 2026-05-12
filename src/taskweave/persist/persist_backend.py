@@ -2,9 +2,11 @@ from typing import Any, Protocol, IO, TextIO, Deque
 from pathlib import Path
 from dataclasses import dataclass
 
-from taskweave.messages import OutputType
 from taskweave.context import get_app_context
 config, constants, args = get_app_context()
+from taskweave.utils import TaskId
+
+from taskweave_protocol import OutputType
 
 class PersistBackend(Protocol):
     def write(self, source_id: str, line: str, output_type: OutputType) -> None:
@@ -59,7 +61,7 @@ class FileBackend:
         else:
             path = Path.joinpath(
                 self.log_dir,
-                source_id,
+                str(source_id),
                 f"{source_id}_{self.file_indices[source_id]:03d}.log"
             )
             self.handles[source_id] = open(path, "w")

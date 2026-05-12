@@ -5,9 +5,10 @@ from dataclasses import dataclass
 from .task import Task
 from .task_strategy import TaskRunner, ExecutionStrategy, PoolTaskRunner, SubprocessTaskRunner
 
+from taskweave.messages import LogProducer
 from taskweave.snapshots import TaskSnapshot
 from taskweave.states import TaskState, Lifecycle, CleanupStrategy, task_transitions
-from taskweave.utils import StrSerializable
+from taskweave.utils import TaskId, CmdParam
 
 class PipelineTask:
     def __init__(
@@ -17,18 +18,17 @@ class PipelineTask:
             session_id : str = 'local',
             on_cleanup : Callable[[], None] | None = None
         ):
-        if isinstance(task_spec.name, StrSerializable):
-            self.name = cast(StrSerializable, task_spec.name)(f"_{session_id}") # concatenated
-        else:
-            self.name = f"{task_spec.name}_{session_id}"
-        
-        self.cmd: List[str | StrSerializable] = task_spec.cmd
+        self.name : TaskId = TaskId(f"{task_spec.name}_{session_id}")
+        self.cmd: List[CmdParam] = [cmd if isinstance(cmd, CmdParam) else CmdParam(cmd) for cmd in task_spec.cmd]
         self.strategy : ExecutionStrategy  = task_spec.strategy
         self._runner : TaskRunner = task_spec._runner
-        self.producer = task_spec.producer
-        self.after_complete : Callable | None = task_spec.after_complete
+        self.producer : LogProducer = task_spec.producer
         self.early_exit_on_success : Callable | None = task_spec.early_exit_on_success
         self.cancellable: bool = task_spec.cancellable
+        self.on_success : Callable | None = task_spec.on_success
+        self.on_failure : Callable | None = task_spec.on_failure
+        self.on_cancel : Callable | None = task_spec.on_cancel
+        self.on_finally : Callable | None = task_spec.on_finally
         
         self.state: TaskState = TaskState.PENDING
         if on_cleanup is not None:
@@ -49,9 +49,6 @@ class PipelineTask:
             )
         self.started_at : float = time.time()
         self.last_error : str = ''
-        self.on_success: Callable | None = None
-        self.on_failure: Callable | None = None
-        self.on_cancel: Callable | None = None
 
     def snapshot(self):
         return TaskSnapshot(

@@ -1,8 +1,9 @@
 from typing import Callable, Protocol
 from taskweave.messages import LogEvent, LogProducer
+from taskweave.utils import StrSerializable
 
 class WorkerPool(Protocol):
-    def subscribe_to_logs(self, cb: Callable[[LogEvent], None]) -> None: ...
+    # def subscribe_to_logs(self, cb: Callable[[LogEvent], None]) -> None: ...
     
     def add_worker(
         self,
@@ -12,7 +13,7 @@ class WorkerPool(Protocol):
         on_success: Callable | None = None,
         on_failure: Callable | None = None,
         on_cancel: Callable | None = None,
-        on_log : Callable | None = None,
+        # on_log : Callable | None = None,
         producer : LogProducer | None
     ) -> None: ...
     

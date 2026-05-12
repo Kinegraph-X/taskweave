@@ -10,15 +10,15 @@ from .session_data import SessionData
 from .make_log_id import make_log_id
 
 from taskweave.context import get_app_context
-from taskweave.utils import StrSerializable
+from taskweave.utils import TaskId
 config, constants, args = get_app_context()
 
 class Encoder(json.JSONEncoder):
     def default(self, obj):
-        if is_dataclass(obj):
-            return asdict(obj)
-        if isinstance(obj, StrSerializable):
+        if isinstance(obj, TaskId):
             return str(obj)
+        elif is_dataclass(obj):
+            return asdict(obj)
         return super().default(obj)
 
 
@@ -30,7 +30,7 @@ class LogStore:
     _known_names : set[str] = Set()
 
     # generates log_id, write in index, returns log_id
-    def register(self, session_id: str, task_name: str | StrSerializable) -> str | StrSerializable:
+    def register(self, session_id: TaskId, task_name: TaskId) -> TaskId:
         log_filename = self._get_name(task_name, session_id)
         index_path = path.join(self.log_dir, self.log_index)
         if path.exists(index_path):
@@ -58,7 +58,7 @@ class LogStore:
 
         return log_filename
     
-    def _get_name(self, task_name: str | StrSerializable, session_id: str):
+    def _get_name(self, task_name: TaskId, session_id: str):
         name = make_log_id(task_name, session_id)
         while name in self._known_names:
             name = make_log_id(task_name, session_id)

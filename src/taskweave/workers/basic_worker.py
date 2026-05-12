@@ -13,7 +13,6 @@ from taskweave.messages import LogProducer, LogEventProducer, LogEvent, MsgType,
 
 from taskweave.messages import LogEvent
 from taskweave.states import WorkerContext
-from taskweave.utils import StrSerializable
 
 def get_time():
 	current_datetime = datetime.now()
@@ -26,7 +25,7 @@ class BasicWorker(Process):
             self,
             *,
             name : str,
-            args_list : list[str | StrSerializable],
+            args_list : list[str],
             producer : LogProducer,
             print_queue : multiprocessing.Queue,
             debug : bool = False,

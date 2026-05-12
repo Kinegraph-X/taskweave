@@ -11,4 +11,8 @@ class MsgType(Enum):
     EVENT = "event"           # warnings et logs d'un module (ex: [m3u8], [ts] chez ffmpeg)
     LOG_LINE = "log_line"     # ligne stdout classifiée, non structurée
     BANNER = "banner"         # métadonnées initiales du process (ex: version ffmpeg, codec)
+    
     ERROR = "error"         # communicate on unknown error (avoid failing silently : always persisted)
+    BACKEND_FAILURE = "backend_failure"
+    CALLBACK_ERROR = "callback_error"
+    HEARTBEAT_ERROR = "heartbeat error"

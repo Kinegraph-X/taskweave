@@ -6,14 +6,14 @@ from dataclasses import dataclass
 from taskweave.snapshots import PipelineSnapshot
 from taskweave.tasks import PipelineTask, Task
 from taskweave.states import PipelineState, Lifecycle, pipeline_transitions
-from taskweave.utils import StrSerializable
+from taskweave.utils import TaskId
 
 class Pipeline():
     def __init__(self, on_change : Callable, session_id : str = 'local'):
-        self.id : str = uuid4().hex
+        self.id : TaskId = TaskId(uuid4().hex)
         self.session_id = session_id
         self.tasks : List[PipelineTask] = []
-        self._task_names : Set[str | StrSerializable] = set()  # enforce local unicity
+        self._task_names : Set[TaskId] = set()  # enforce local unicity
         self.state : PipelineState = PipelineState.PENDING
         self.cycle = Lifecycle(
             state = PipelineState.PENDING,
@@ -34,8 +34,8 @@ class Pipeline():
     
     def snapshot(self) -> PipelineSnapshot:
         return PipelineSnapshot(
-            id = self.id,
-            tasks = {t.name: t.snapshot() for t in self.tasks},
+            id = str(self.id),
+            tasks = {str(t.name) : t.snapshot() for t in self.tasks},
             state=self.state,
             early_exit = self.early_exit,
             started_at=self.started_at,
