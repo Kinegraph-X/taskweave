@@ -1,20 +1,22 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from time import time
 
 from .classifier import Classifier
 
-from taskweave.messages import OutputType, _OUTPUT_TO_MSG, LogEvent, MsgType, SourceType
+from taskweave.messages import _OUTPUT_TO_MSG, LogEvent, MsgType, SourceType
+from taskweave.utils import TaskId
+from taskweave.persist import PersistStrategy, PersistNone
+from taskweave_protocol import OutputType
 
 
-
-
-"""
-This type is meant to be compatible with LogEventProducer:
-the "dialect" package must not be coupled to the "workers" package
-"""
 @dataclass
 class ClassifyingProducer:
+    """
+    This type is meant to be compatible with LogEventProducer:
+    the "dialect" package must not be coupled to the "workers" package
+    """
     classifier : Classifier
+    strategy : PersistStrategy = field(default_factory = PersistNone)
 
     def on_line(self, source_id: str, line: str) -> LogEvent | None:
         # Generator consumed eagerly here
@@ -29,15 +31,19 @@ class ClassifyingProducer:
             OutputType.LOG_LINE
         )
         msg_type = _OUTPUT_TO_MSG.get(matched_type)
-        if msg_type is None:
-            return None # DISCARD
+        
+        assert msg_type is not None
+        
         parsed = {name: pr for name, (_, pr) in results.items()}
 
-        return LogEvent(
-            msg_type = msg_type,
-            source_type = SourceType.TASK,
-            source_id = source_id,
-            msg = line,
-            parsed = parsed,
-            timestamp = time()
+        return self.strategy.specialize_event(
+            LogEvent(
+                msg_type = msg_type,
+                source_type = SourceType.TASK,
+                source_id = TaskId(source_id),
+                msg = line,
+                parsed = parsed,
+                timestamp = time()
+            ),
+            matched_type
         )

@@ -1,16 +1,16 @@
 from typing import Any, Generator
 from dataclasses import dataclass, field
 from .line_extractor import RExtractor
-from .json_schema import JsonSchema
 from .parse_result import ParseResult
 
-from taskweave.messages import OutputType
 from taskweave.persist import PersistStrategy, PersistNone
+
+from taskweave_protocol import JsonSchema, OutputType
 
 @dataclass(kw_only=True)
 class Classifier:
     rules: dict[RExtractor, OutputType]
-    persist: PersistStrategy = field(default_factory = PersistNone)
+    # persist: PersistStrategy = field(default_factory = PersistNone)
     _names : dict[RExtractor, str] = {}
 
     def __post_init__(self):
@@ -37,10 +37,10 @@ class Classifier:
                     yield self._names[extractor], output_type, ParseResult(matched = True, content = result)
                 else:
                     yield self._names[extractor], output_type, ParseResult(matched = False)
-        if not matched:
-            self.persist.write(line, OutputType.DISCARD)
-        else:
-            self.persist.write(line, output_type)
+        # if not matched:
+        #     self.persist.write(line, OutputType.DISCARD)
+        # else:
+        #     self.persist.write(line, output_type)
 
     def schema(self) -> dict[str, JsonSchema]:
         schema : dict[str, JsonSchema] = {}

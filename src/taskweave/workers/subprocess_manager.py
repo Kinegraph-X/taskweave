@@ -1,6 +1,6 @@
 import traceback
 from dataclasses import dataclass, field
-from threading import Thread
+from threading import Thread, Event
 from subprocess import Popen, PIPE, STDOUT
 from typing import Callable
 from queue import Queue
@@ -19,25 +19,20 @@ from taskweave.buses import MiniBus, Heartbeat, HeartbeatConfig
 
 @dataclass(kw_only=True)
 class SubProcessManager:
-    # Minimal single-process manager — no pool, no queue.
-    # Contrast with WorkerManager which handles concurrent workers via max_count.
-    # Both implement WorkerPool
+    """
+    Minimal single-process manager — no pool, and potentially no shared queue.
+    Mimics WorkerManager which handles concurrent workers, but is pure one-shot
+    Both implement WorkerPool as a minimal generic
+    """
     log_bus : MiniBus
-    source_id: str = field(default_factory=str)
+    source_id: str
     producer: LogProducer = field(default_factory=LogEventProducer)
-    heartbeat_cfg : HeartbeatConfig = HeartbeatConfig()
     _completion_queue: Queue = field(default_factory=Queue)
-    # _on_log_cb: Callable[[LogEvent], None] = field(default=lambda evt: None)
     _process: Popen | None = field(init=False, default=None)
     _stdout_thread: Thread | None = field(init=False, default=None)
     _completion_thread: Thread | None = field(init=False, default=None)
-
-    def __post_init__(self):
-        self._heartbeat = Heartbeat(
-            task_id = self.source_if,
-            log_bus = self.log_bus,
-            config = self.heartbeat_cfg
-        )
+    _done : Event = Event()
+    _init : Event = Event()
 
     def add_worker(
         self,
@@ -47,17 +42,24 @@ class SubProcessManager:
         on_success: Callable | None = None,
         on_failure: Callable | None = None,
         on_cancel: Callable | None = None,
-        # on_log: Callable | None = None,
-        producer: LogProducer | None
+        heartbeat_cfg : HeartbeatConfig = HeartbeatConfig(),
+        producer: LogProducer | None        # not used
     ) -> None:
+        if self._done.is_set() or self._init.is_set(): # prevent multiple calls to add_worker
+            return
         self.source_id = name
         self.on_cancel = on_cancel
+        self._heartbeat = Heartbeat(
+                task_id = self.source_id,
+                log_bus = self.log_bus,
+                config = heartbeat_cfg
+            )
         
         # name discarded — single process, this mimics Pool[WorkItem], so no WorkItem.name
         self._start(args_list, on_success, on_failure)
+        self._init.set()
 
-    def stop_worker(self, name: str) -> None:
-        # name discarded
+    def stop_worker(self, name: str) -> None:   # name discarded
         if self._process:
             self._process.terminate()
         if self.on_cancel:
@@ -72,9 +74,8 @@ class SubProcessManager:
         on_success: Callable | None = None,
         on_failure: Callable | None = None,
     ) -> None:
-        # allow passing serializable objects references
-        cmd = [str(instr) for instr in args_list]
-        self._process = Popen(cmd, stdout=PIPE, stderr=STDOUT, text=True)
+        self._done.clear()
+        self._process = Popen(args_list, stdout=PIPE, stderr=STDOUT, text=True)
         self._stdout_thread = Thread(
             target=self._poll_stdout,
             daemon=True,
@@ -130,6 +131,7 @@ class SubProcessManager:
                     self._execute_callback(
                         self.source_id, on_failure, FinalStatus.FAILURE)
                 break
+            self._done.set()
 
     def _execute_callback(self, name: str, cb: Callable, final_status: FinalStatus):
         outcome: TaskOutcome = TaskOutcome(
@@ -154,4 +156,5 @@ class SubProcessManager:
                 f"SubProcessManager._completion_thread thread for {name} raised : '{e}' when calling completion cbs")
             print(stacktrace)
 
-    def wait_all(self) -> None: ...
+    def wait_all(self) -> None:
+        self._done.wait()

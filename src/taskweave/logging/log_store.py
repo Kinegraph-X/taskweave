@@ -30,8 +30,8 @@ class LogStore:
     _known_names : set[str] = Set()
 
     # generates log_id, write in index, returns log_id
-    def register(self, session_id: TaskId, task_name: TaskId) -> TaskId:
-        log_filename = self._get_name(task_name, session_id)
+    def register(self, session_id: TaskId, source_id: TaskId) -> TaskId:
+        log_filename = self._get_name(source_id, session_id)
         index_path = path.join(self.log_dir, self.log_index)
         if path.exists(index_path):
             try :
@@ -58,10 +58,10 @@ class LogStore:
 
         return log_filename
     
-    def _get_name(self, task_name: TaskId, session_id: str):
-        name = make_log_id(task_name, session_id)
+    def _get_name(self, source_id: TaskId, session_id: TaskId):
+        name = make_log_id(source_id, str(session_id))
         while name in self._known_names:
-            name = make_log_id(task_name, session_id)
+            name = make_log_id(source_id, str(session_id))
         self._known_names.add(str(name))
         return name
 

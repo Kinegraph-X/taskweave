@@ -19,6 +19,14 @@ class NoOpMiniBus:
 
 ---
 
+Tests : 
+
+time.time_ns() pour les IDs — injectable de la même façon
+_completion_dispatch thread — testable via queue fictive sans thread réel
+random.choices() pour les suffixes — injectable avec random.Random(seed) fixe
+
+---
+
 Documentation : 
 
 Si, on a — mais l'écosystème Python est fragmenté sur ce point, c'est son péché historique.

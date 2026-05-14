@@ -10,9 +10,8 @@ from time import time
 
 from .worker_logger import WorkerLogger
 from taskweave.messages import LogProducer, LogEventProducer, LogEvent, MsgType, SourceType
-
-from taskweave.messages import LogEvent
 from taskweave.states import WorkerContext
+from taskweave.utils import TaskId
 
 def get_time():
 	current_datetime = datetime.now()
@@ -132,7 +131,7 @@ class BasicWorker(Process):
         return LogEvent(
             msg_type = MsgType.LOG_LINE,
             source_type = SourceType.TASK,
-            source_id = self.name,
+            source_id = TaskId(self.name),
             msg = line,
             timestamp = time()
         )
