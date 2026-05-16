@@ -1,7 +1,8 @@
 from .persist_backend import (
     NoOpBackend as NoOpBackend,
     PersistBackend as PersistBackend,
-    FileBackend as FileBackend
+    FileBackend as FileBackend,
+    FileBackendRunner as FileBackendRunner
 )
 from .persist_strategy import (
     PersistStrategy as PersistStrategy,

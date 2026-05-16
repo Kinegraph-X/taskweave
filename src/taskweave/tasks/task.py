@@ -17,7 +17,7 @@ class Task:
     _runner : TaskRunner = field(default = NoOpRunner(), init = False)
     producer : LogProducer = field(default_factory = LogEventProducer)
     backend : PersistBackend | None = None
-    early_exit_on_success : Callable | None = None
+    early_exit_on_success : Callable[[], bool] | None = None
     cancellable: bool = True
     on_success : Callable | None = None
     on_failure : Callable | None = None
@@ -25,5 +25,6 @@ class Task:
     on_finally : Callable | None = None
 
     def __post_init__(self):
-        if isinstance(str, self.name):
+        #type guard just for mypy : name is str
+        if isinstance(self.name, str):
             self.name = TaskId(self.name)

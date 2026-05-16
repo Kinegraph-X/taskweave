@@ -22,8 +22,18 @@ class NeedsPools(Protocol):
 class NeedsQueue(Protocol):
     global_completion_queue : Queue
 
-class PoolExecutionContext(NeedsPools, Protocol):...
-class SynchronousExecutionContext(NeedsSourceId, NeedsQueue, NeedsBus, Protocol):...
+class PoolExecutionContext(
+    ExecutionContext,
+    NeedsPools,
+    Protocol
+    ):...
+class SynchronousExecutionContext(
+    ExecutionContext,
+    NeedsSourceId,
+    NeedsQueue,
+    NeedsBus,
+    Protocol
+    ):...
 
 @dataclass(kw_only = True)
 class ExecutionPool:

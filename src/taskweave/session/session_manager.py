@@ -6,7 +6,7 @@ from time import time, sleep
 from .session import Session
 from taskweave.context import Config, get_app_context
 config, constants, args = get_app_context()
-from taskweave.persist import PersistRegistry
+from taskweave.persist import PersistRegistry, FileBackendRunner
 from taskweave.snapshots import PipelineFailure
 from taskweave.buses import MiniBus, ObservabilityPolicy
 from taskweave.info_stream import StreamWriter, SinkScope
@@ -104,14 +104,14 @@ class SessionManager:
             self._push_event(LogEvent(
                 msg_type = MsgType.STATE_CHANGE,
                 source_type = SourceType.TASK,
-                source_id = cast(TaskId, task_spec.name),    # safe : Task.name is cast in post_init
+                source_id = task_spec.name,    # safe : Task.name is cast in post_init
                 timestamp=time()
             ))
         
         # ensures ordering on disk and unicity on task names
         task_spec.name = self.log_store.register(
             session_id = self.session.id,
-            source_id = cast(TaskId, task_spec.name)    # safe : Task.name is cast in post_init
+            source_id = task_spec.name    # safe : Task.name is cast in post_init
         )
 
         # synchronize logging and persitance
@@ -122,25 +122,29 @@ class SessionManager:
         # launch task
         self.orchestrator.add_task(pipeline_id, task_spec, on_transition, on_cleanup)
     
-    # StreamWriter subscribes to pools once
     def add_pool(self, pool_name : str, max_parallel : int = 4) -> PoolStrategy:
+        """
+        pools subscribe to StreamWriter once
+        """
         manager = WorkerManager(
             max_count = max_parallel,
             log_bus = self._log_bus,
             completion_queue = self._global_completion_queue
         )
-        # manager.subscribe_to_logs(self.stream_writer._on_event)
         self._execution_pools[pool_name] = PoolTaskRunner(manager = manager)
         return PoolStrategy(pool_name = pool_name)
 
-    # Pool tasks have the same _runner.
-    # Each synchronous tasks has a runner which mimics pool-runner.
-    # TaskRunner(Protocol) -> (TaskPoolRunner, SubprocessTaskRunner, NoOpRunner)
-    # -> 3rd arg to get_runner ensures log-subscription :
-    #   unique on pool, per task on synchronous subprocess
     def _define_runner(self, task : Task) -> None :
+        """
+        Pool tasks have the same _runner.
+        Each synchronous task has a _runner which mimics PoolRunner.
+        TaskRunner(Protocol) -> (TaskPoolRunner, SubprocessTaskRunner, NoOpRunner)
+        -> get_runner() consumes what's needed 
+        global_completion_queue is unique on pools, may be per task on synchronous subprocesses
+        but "a unique instance accross all runners" is the pattern for the entire scope of this lib
+        """
         context = ExecutionPool(
-            source_id = cast(TaskId, task.name),
+            source_id = task.name,
             pools = self._execution_pools,
             global_completion_queue = self._global_completion_queue,
             event_bus = self._log_bus
@@ -149,26 +153,33 @@ class SessionManager:
             context = context
         )
 
-    # due to decoupling with BasicWorker, tasks without specific log_producer
-    # declare persistance mecanism on themselves,
-    # (Specific producers are in the "dialect" package)
     def _handle_task_persitance(self, task_spec : Task) -> Callable | None:
+        """
+        due to decoupling with BasicWorker, tasks without specific log_producer
+        declare persistance mecanism on themselves,
+        (Specific producers are in the "dialect" package)
+        """
         if task_spec.backend:
-            task_spec.backend.register_error_sink(
-                self._log_bus
+            backend_runner = FileBackendRunner(
+                source_id = str(task_spec.name),
+                backend = task_spec.backend,
+                error_sink = self._log_bus.emit_internal
             )
             self.stream_writer.register_sink(
                 task_spec.backend.write,
                 scope = SinkScope.SCOPED,
-                source_id = cast(TaskId, task_spec.name)
+                source_id = task_spec.name
             )
             self._persist_registry.add_context(
-                cast(TaskId, task_spec.name),
-                task_spec.backend
+                task_spec.name,
+                backend_runner
             )
-            return lambda : self.stream_writer.unregister_sink(
-                cast(TaskId, task_spec.name)    # safe as Task.name is cast in post_init
-            )
+            def cleanup(): 
+                self.stream_writer.unregister_sink(
+                    task_spec.name
+                )
+                task_spec.backend.close()
+            return cleanup 
         
         return None
 

@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from .persist_strategy import PersistStrategy
-from .persist_backend import PersistBackend
+from .persist_backend import PersistBackendRunner
 
 from taskweave.messages import LogEvent
 from taskweave.utils import TaskId
@@ -10,12 +10,12 @@ from taskweave.utils import TaskId
 class PersistRegistry:
     """Mapping task_id → PersistContext. Owned by SessionManager."""
 
-    _contexts : dict[TaskId, PersistBackend] = {}
+    _contexts : dict[TaskId, PersistBackendRunner] = {}
 
-    def add_context(self, task_id : TaskId, backend : PersistBackend):
+    def add_context(self, task_id : TaskId, backend : PersistBackendRunner):
         self._contexts[task_id] = backend
 
     def persist(self, event: LogEvent) -> None:
         ctx = self._contexts.get(event.source_id)
         if ctx:
-            ctx.write(str(event.source_id), event.format())
+            ctx.write(str(event.source_id), f"{event.format()}\n")

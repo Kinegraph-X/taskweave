@@ -125,10 +125,10 @@ class LogStore:
                 raise RuntimeError(f"error loading log index file, possibly malformed : {index_path} :{e}")
             
             for session_id, session_data in sessions.items():
-                filelist = session_data.list
+                # filelist = session_data.list
                 if current_time - session_data.timestamp > self.max_age:
-                    for file in filelist:
-                        Path(str(file)).unlink()
+                    for path in Path(self.log_dir).glob(f"*_{session_id}_*{constants.log_file_exxtension}"):
+                        path.unlink()
                     to_delete.append(session_id)
 
             for session_id in to_delete:

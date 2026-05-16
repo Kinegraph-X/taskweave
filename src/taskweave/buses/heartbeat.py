@@ -71,12 +71,12 @@ class Heartbeat:
             self
     ):
         while self._attempts < self._config.max_attempts:
-            delay = min(
-                self._config.threshold * self._attempts,
-                self._config.max_threshold
-            )
-            self._sleep(delay)
-            self._attempts += 1
+            delay = self._config.threshold * self._attempts
+            if delay < self._config.max_threshold:
+                self._sleep(delay)
+                self._attempts += 1
+            else:
+                break
 
         self._log_bus.emit(
             LogEvent(

@@ -1,7 +1,8 @@
-import time
-from typing import Any, Protocol, IO, TextIO, Deque
+import time, threading
+from typing import Callable, Any, Protocol, IO, TextIO, Deque
 from pathlib import Path
 from dataclasses import dataclass, field
+from queue import Queue, Full
 
 from .circuit_breaker import CircuitBreaker
 from .circuit_breaker_config import CircuitBreakerConfig, PersistConfig
@@ -16,37 +17,64 @@ from taskweave.persist import PersistRegistry
 
 from taskweave_protocol import OutputType
 
-class PersistBackend(Protocol):
-    def register_error_sink(self, sink : MiniBus) -> None:...
-    def write(self, source_id: str, line: str) -> None:...
+class BackendFailure(Exception):...
 
-@dataclass(kw_only = True)
-class NoOpBackend:
-    def register_error_sink(self, sink : MiniBus) -> None:...
-    def write(self, source_id: str, line: str) -> None:...
+class PersistBackend(Protocol):
+    max_lines : int
+    max_files : int
+    log_dir: Path
+    config : PersistConfig
 
 @dataclass(kw_only = True)
 class FileBackend:
-    # base_folder : str = "logs/",
     max_lines : int = 100
     max_files : int = 3
     log_dir: Path = Path(f"{constants.log_folder}")
-    # late initialized : default constructed, although required for error handling
-    error_sink : MiniBus = MiniBus(writer = StreamWriter(persist_registry = PersistRegistry()), observability_policy = ObservabilityPolicy.RELAXED, failure_behavior = lambda: None)
     config : PersistConfig = field(default = CircuitBreakerConfig.LOCAL.value)
+
+class PersistBackendRunner(Protocol):
+    def write(self, source_id: str, line: str) -> None:...
+    def close(self) -> None:...
+
+class NoOpBackendRunner:
+    def write(self, source_id: str, line: str) -> None:...
+    def close(self) -> None:...
+
+class FileBackendRunner:
+    """
+    one file per worker, named on source_id, rotated
+    (old implem was shared accross tasks)
+    """
+    def __init__(
+            self,
+            *,
+            source_id : str,
+            backend : FileBackend,
+            error_sink : Callable[[LogEvent], None] # MiniBus.emit_internal
+        ):
+        self.max_lines = backend.max_lines
+        self.max_files = backend.max_files
+        self.log_dir = backend.log_dir
+        self.source_id = source_id
+        self.error_sink = error_sink
+        self.config : PersistConfig = field(default = CircuitBreakerConfig.LOCAL.value)
+        self._queue: Queue = Queue(maxsize=10_000)
+        self._thread = threading.Thread(target=self._consume_loop, daemon=True)
+        self._thread.start()
 
     def __post_init__(self):
         self.handles : dict[str, IO[Any]] = {}
-        self.buffers : dict[str, Deque[str]] = {}
+        self.buffers : dict[str, Deque[str]] = {self.source_id : Deque()}
         self.file_indices : dict[str, int] = {}
 
         self.circuit_breaker = CircuitBreaker(self.config)
 
-    def register_error_sink(self, sink : MiniBus):
-        self.error_sink = sink
-
-    # one file per worker, named on source_id, rotated
+    # circuit_breaker accepts multiple "queue full" errors,
+    # depending on config, and we hope for recovery
+    # on OSError -> thread exits -> propagate -> prevent further writes
     def write(self, source_id: str, line: str) -> None:
+        if self._thread_died:
+            return
         try:
             self.circuit_breaker.call(
                 fn = self._write,
@@ -54,19 +82,43 @@ class FileBackend:
             )
         except Exception as e:
             self._propagate_error(source_id, e)
+            self._cleanup()
+
+    def _consume_loop(self):
+        try:
+            self._loop()
+        except (OSError, IOError) as e:
+            self._thread_died = True
+            self._propagate_error(self.source_id, e)
+            self._cleanup()
+
+    def loop(self):
+        while True:
+            line = self._queue.get()
+            if line is None:    # poison pill
+                break
+            self._append(self.source_id, line)
 
     def _write(self, source_id : str, line : str):
+        if self._thread_died:
+            raise BackendFailure(f"task {self.source_id} FileBackend : consumer thread died")
+        try:
+            self._queue.put_nowait(line)
+        except Full as e:
+            raise e
+
+    def _append(self, source_id : str, line : str):
         buffer = self._get_buffer(source_id)
         buffer.append(line)
         if len(buffer) >= self.max_lines:
             self._rotate(source_id)
 
     def _propagate_error(self, source_id : str, e : Exception):
-        self.error_sink.emit_internal(
+        self.error_sink(
             LogEvent(
                 source_id = TaskId(source_id),
                 source_type = SourceType.TASK,
-                msg = str(e),
+                msg = f"Backend thread died : {str(e)}",
                 msg_type = MsgType.BACKEND_FAILURE,
                 timestamp = time.time()
             )
@@ -114,6 +166,9 @@ class FileBackend:
 
         for id, handle in self.handles.items():
             handle.close()
+
+        self._queue.put_nowait(None)
+        self._thread.join()
 
     def close(self) -> None:
         self._cleanup()
