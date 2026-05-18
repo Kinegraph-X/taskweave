@@ -6,8 +6,8 @@ config, args = get_config()
 
 @dataclass
 class Constants():
-    log_folder = "logs/"
-    log_file_exxtension = ".log"
+    log_dir = "logs/"
+    log_file_extension = ".jsonl"
     log_index_filename = "log_index"
     log_index_extension = ".json"
 

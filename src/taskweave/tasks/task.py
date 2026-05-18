@@ -9,6 +9,8 @@ from taskweave.persist import PersistBackend
 from taskweave.utils import CmdParam, TaskId, ReverseStrAccumulator, StrAccumulator
 from taskweave.messages import LogProducer, LogEventProducer
 
+from taskweave_transport import ControlDialect
+
 @dataclass(kw_only = True)
 class Task:
     name : str | TaskId
@@ -23,6 +25,7 @@ class Task:
     on_failure : Callable | None = None
     on_cancel : Callable | None = None
     on_finally : Callable | None = None
+    control: ControlDialect | None = None
 
     def __post_init__(self):
         #type guard just for mypy : name is str

@@ -2,8 +2,9 @@ from dataclasses import dataclass, field
 from time import time
 
 from .classifier import Classifier
+from .output_to_msg import _OUTPUT_TO_MSG
 
-from taskweave.messages import _OUTPUT_TO_MSG, LogEvent, MsgType, SourceType
+from taskweave.messages import LogEvent, MsgType, SourceType
 from taskweave.utils import TaskId
 from taskweave.persist import PersistStrategy, PersistNone
 from taskweave_protocol import OutputType

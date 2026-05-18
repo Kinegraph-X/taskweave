@@ -1,12 +1,7 @@
 import time
 from typing import Callable, Protocol
 from dataclasses import dataclass, field
-from .persist_backend import PersistBackend, FileBackend
-from .circuit_breaker_config import PersistConfig, CircuitBreakerConfig
-from .circuit_breaker import CircuitBreaker
 
-from taskweave.buses import MiniBus
-from taskweave.utils import TaskId
 from taskweave.messages import LogEvent, MsgType, SourceType, RoutingPolicy
 
 from taskweave_protocol import OutputType
@@ -63,7 +58,7 @@ class PersistAll:
 class PersistDiscarded:
     """only writes OutputType.DISCARD and OutputType.ERROR"""
     # backend : PersistBackend = field(default_factory = FileBackend)
-    config : PersistConfig = field(default = CircuitBreakerConfig.LOCAL.value)
+    # config : PersistConfig = field(default = CircuitBreakerConfig.LOCAL.value)
 
     # def __post_init__(self):
     #     self.circuit_breaker = CircuitBreaker(self.config)

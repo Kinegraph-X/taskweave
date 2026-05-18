@@ -45,7 +45,7 @@ def after_complete(done):
 
 @pytest.fixture
 def session(tmp_path, monkeypatch, on_event):
-    monkeypatch.setattr(constants, "log_folder", tmp_path / "logs")
+    monkeypatch.setattr(constants, "log_dir", tmp_path / "logs")
     session = SessionManager(on_event = on_event)
     yield session
     session.reset(on_event = on_event)

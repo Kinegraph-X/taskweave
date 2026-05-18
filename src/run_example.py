@@ -32,7 +32,7 @@ ffmpeg_classifier = Classifier(
         progress_parser: OutputType.PROGRESS,
     },
     persist=PersistStrategy(
-        backend=FileBackend(log_dir=constants.log_folder),
+        backend=FileBackend(log_dir=constants.log_dir),
         # TODO: added field on dataclass persist : list[RegexFieldParser]
         policy=PersistPolicy.DISCARDED_ONLY,
     )

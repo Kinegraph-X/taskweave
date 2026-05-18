@@ -1,6 +1,6 @@
 from typing import Callable, Any
 
-from .seen_sequences import SeenSequences
+from taskweave.messages import SeenSequences
 
 from taskweave.utils import TaskId
 from taskweave.info_stream import StreamWriter

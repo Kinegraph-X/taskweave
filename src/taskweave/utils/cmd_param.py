@@ -1,5 +1,6 @@
-from typing import TypeVar, SupportsFloat
 from __future__ import annotations
+from typing import TypeVar, SupportsFloat
+
 from .ref import Ref
 
 T = TypeVar("T", bound = SupportsFloat)

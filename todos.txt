@@ -97,3 +97,8 @@ def submit(self, task: Task) -> None:
 **Ce que je te recommande**
 
 Google style + type hints — c'est le plus proche de JSDoc en termes de lisibilité, et **mkdocs + mkdocstrings** le rendu aussi bien que JavaDoc. C'est l'outillage moderne qui a supplanté Sphinx pour les projets récents.
+
+---
+
+Implem Elastic et Redis
+Utilisation RAM en multiprocess ET multi-thread : quelle look pour une implem de l'orchestrateur en event-loop (beaucoup de edge-cases chez asyncio)

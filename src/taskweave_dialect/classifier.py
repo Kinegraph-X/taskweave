@@ -3,15 +3,13 @@ from dataclasses import dataclass, field
 from .line_extractor import RExtractor
 from .parse_result import ParseResult
 
-from taskweave.persist import PersistStrategy, PersistNone
-
 from taskweave_protocol import JsonSchema, OutputType
 
 @dataclass(kw_only=True)
 class Classifier:
     rules: dict[RExtractor, OutputType]
     # persist: PersistStrategy = field(default_factory = PersistNone)
-    _names : dict[RExtractor, str] = {}
+    _names : dict[RExtractor, str] = field(default_factory = dict)
 
     def __post_init__(self):
         for extractor in self.rules.keys():

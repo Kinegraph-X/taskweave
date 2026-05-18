@@ -1,5 +1,5 @@
-from typing import Any
 from __future__ import annotations
+from typing import Any
 
 class TaskId:
     def __init__(self, base: str):

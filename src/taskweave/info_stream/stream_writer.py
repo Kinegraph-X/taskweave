@@ -2,8 +2,7 @@ from typing import List, Callable, TypeVar
 from .sink_scope import SinkScope
 
 from taskweave.persist import PersistRegistry
-from taskweave.buses import SeenSequences
-from taskweave.messages import LogEvent, Enveloppe
+from taskweave.messages import LogEvent, Enveloppe, SeenSequences
 from taskweave.snapshots import SessionSnapshot
 from taskweave.utils import TaskId
 

@@ -21,17 +21,38 @@ class Encoder(json.JSONEncoder):
             return asdict(obj)
         return super().default(obj)
 
+    def encode(self, obj):
+        return super().encode(self._normalize_keys(obj))
+
+    def iterencode(self, obj, _one_shot=False):
+        return super().iterencode(self._normalize_keys(obj), _one_shot)
+
+    def _normalize_keys(self, obj):
+        if isinstance(obj, dict):
+            return {
+                str(k) if isinstance(k, TaskId) else k: self._normalize_keys(v)
+                for k, v in obj.items()
+            }
+        elif isinstance(obj, (list, tuple)):
+            return [self._normalize_keys(i) for i in obj]
+        return obj
+
 
 @dataclass(kw_only=True)
 class LogStore:
     log_dir: Path
     log_index: Path = Path(f"{constants.log_index_filename}{constants.log_index_extension}")
     max_age : float = float(49 * 24 * 3600 * 1000)
-    _known_names : set[str] = Set()
+    _known_names : Set[str] = field(default_factory = set)
 
     # generates log_id, write in index, returns log_id
-    def register(self, session_id: TaskId, source_id: TaskId) -> TaskId:
-        log_filename = self._get_name(source_id, session_id)
+    def register(
+            self,
+            session_id: TaskId,
+            source_id: TaskId,
+            make_id_fn : Callable[[TaskId, TaskId], TaskId] = make_log_id
+        ) -> TaskId:
+        log_filename = self._get_name(source_id, session_id, make_id_fn)
         index_path = path.join(self.log_dir, self.log_index)
         if path.exists(index_path):
             try :
@@ -58,10 +79,15 @@ class LogStore:
 
         return log_filename
     
-    def _get_name(self, source_id: TaskId, session_id: TaskId):
-        name = make_log_id(source_id, str(session_id))
+    def _get_name(
+            self,
+            source_id: TaskId,
+            session_id: TaskId,
+            make_id_fn : Callable[[TaskId, TaskId], TaskId]
+        ):
+        name = make_id_fn(source_id, session_id)
         while name in self._known_names:
-            name = make_log_id(source_id, str(session_id))
+            name = make_id_fn(source_id, session_id)
         self._known_names.add(str(name))
         return name
 
@@ -112,28 +138,31 @@ class LogStore:
     def cleanup(self) -> None:
         index_path = path.join(self.log_dir, self.log_index)
         if not path.exists(index_path):
-            return
+            return  # fail silently : possibly no index after fresh install
 
         current_time = time()
         
+        sessions = self._get_index(index_path)
+        to_delete = []
+        
+        for session_id, session_data in sessions.items():
+            if current_time - session_data.timestamp > self.max_age:
+                for log_file in Path(self.log_dir).glob(f"*_{session_id}_*{constants.log_file_extension}"):
+                    log_file.unlink()
+                to_delete.append(session_id)
+        
+        for session_id in to_delete:
+            del sessions[session_id]
+
+        with open(index_path, "w") as f:
+            json.dump(sessions, f, cls = Encoder)
+
+    def _get_index(self, index_path : str) -> dict:
         with open(index_path, "r") as f:
-            to_delete = []
             try:
                 # reconstruct original, for consistancy in code
                 sessions = {k: SessionData(**v) for k, v in json.load(f).items()}
             except Exception as e:
                 raise RuntimeError(f"error loading log index file, possibly malformed : {index_path} :{e}")
-            
-            for session_id, session_data in sessions.items():
-                # filelist = session_data.list
-                if current_time - session_data.timestamp > self.max_age:
-                    for path in Path(self.log_dir).glob(f"*_{session_id}_*{constants.log_file_exxtension}"):
-                        path.unlink()
-                    to_delete.append(session_id)
-
-            for session_id in to_delete:
-                del sessions[session_id]
-
-        with open(index_path, "w") as f:
-            json.dump(sessions, f, cls = Encoder)
+        return sessions
                     

@@ -1,36 +1,42 @@
 import time, threading
-from typing import Callable, Any, Protocol, IO, TextIO, Deque
+from typing import Callable, Any, Protocol, IO, Deque
 from pathlib import Path
 from dataclasses import dataclass, field
-from queue import Queue, Full
+from queue import Queue, Full, Empty
+from collections import deque
 
-from .circuit_breaker import CircuitBreaker
-from .circuit_breaker_config import CircuitBreakerConfig, PersistConfig
+from taskweave.utils import (
+    CircuitBreaker,
+    TooManyFailuresError,
+    CircuitBreakerConfig,
+    PersistConfig
+)
 
 from taskweave.context import get_app_context
 config, constants, args = get_app_context()
 from taskweave.utils import TaskId
 from taskweave.messages import LogEvent, SourceType, MsgType
-from taskweave.buses import MiniBus, ObservabilityPolicy
-from taskweave.info_stream import StreamWriter
-from taskweave.persist import PersistRegistry
-
-from taskweave_protocol import OutputType
 
 class BackendFailure(Exception):...
 
 class PersistBackend(Protocol):
-    max_lines : int
-    max_files : int
-    log_dir: Path
     config : PersistConfig
 
 @dataclass(kw_only = True)
 class FileBackend:
     max_lines : int = 100
     max_files : int = 3
-    log_dir: Path = Path(f"{constants.log_folder}")
-    config : PersistConfig = field(default = CircuitBreakerConfig.LOCAL.value)
+    log_dir: Path = Path(f"{constants.log_dir}")
+    config : PersistConfig = field(default_factory = CircuitBreakerConfig.LOCAL.value)
+    """ 
+    testing implies min_drain_threshold is larger than max_line * max_files
+    to avoid triggering the drain on close()
+    """
+    min_drain_threshold: int | None = None # generally the same as max_lines
+
+    @property
+    def _min_drain_threshold(self) -> int:
+        return self.min_drain_threshold if self.min_drain_threshold is not None else self.max_lines
 
 class PersistBackendRunner(Protocol):
     def write(self, source_id: str, line: str) -> None:...
@@ -50,27 +56,30 @@ class FileBackendRunner:
             *,
             source_id : str,
             backend : FileBackend,
-            error_sink : Callable[[LogEvent], None] # MiniBus.emit_internal
+            error_sink : Callable[[LogEvent], None] # MiniBus.emit_internal, equivalence to stderr
         ):
         self.max_lines = backend.max_lines
         self.max_files = backend.max_files
         self.log_dir = backend.log_dir
+        self._min_drain_threshold = backend._min_drain_threshold
         self.source_id = source_id
         self.error_sink = error_sink
-        self.config : PersistConfig = field(default = CircuitBreakerConfig.LOCAL.value)
+
+        self.file_index : int = 1
+        self.buffer : Deque[str] = deque()
+        # self.create_dir()
+        self.handle : IO[Any] = self._create_handle()
+        self._thread_died = False
+        self._stop_event = threading.Event()
+
+        self.circuit_breaker = CircuitBreaker(config = backend.config)
+
         self._queue: Queue = Queue(maxsize=10_000)
         self._thread = threading.Thread(target=self._consume_loop, daemon=True)
         self._thread.start()
 
-    def __post_init__(self):
-        self.handles : dict[str, IO[Any]] = {}
-        self.buffers : dict[str, Deque[str]] = {self.source_id : Deque()}
-        self.file_indices : dict[str, int] = {}
-
-        self.circuit_breaker = CircuitBreaker(self.config)
-
     # circuit_breaker accepts multiple "queue full" errors,
-    # depending on config, and we hope for recovery
+    # depending on config, and we hope for recovery.
     # on OSError -> thread exits -> propagate -> prevent further writes
     def write(self, source_id: str, line: str) -> None:
         if self._thread_died:
@@ -80,7 +89,7 @@ class FileBackendRunner:
                 fn = self._write,
                 args_list = [source_id, line]
             )
-        except Exception as e:
+        except TooManyFailuresError as e:
             self._propagate_error(source_id, e)
             self._cleanup()
 
@@ -92,8 +101,8 @@ class FileBackendRunner:
             self._propagate_error(self.source_id, e)
             self._cleanup()
 
-    def loop(self):
-        while True:
+    def _loop(self):
+        while True and not self._stop_event.is_set():
             line = self._queue.get()
             if line is None:    # poison pill
                 break
@@ -108,10 +117,11 @@ class FileBackendRunner:
             raise e
 
     def _append(self, source_id : str, line : str):
-        buffer = self._get_buffer(source_id)
+        buffer = self._get_buffer()
         buffer.append(line)
         if len(buffer) >= self.max_lines:
-            self._rotate(source_id)
+            self._rotate()
+        self._queue.task_done()
 
     def _propagate_error(self, source_id : str, e : Exception):
         self.error_sink(
@@ -124,64 +134,113 @@ class FileBackendRunner:
             )
         )
 
-    def _rotate(self, source_id : str) -> None:
-        self._get_handle(source_id).close()
-        self._get_file_index(source_id)
-        handle = self._get_handle(source_id)
+    def _rotate(self) -> None:
+        self.handle.close()
+        handle = self._get_handle()
         
-        for line in self.buffers[source_id]:
-            handle.write(line + '\n')
+        for line in self.buffer:
+            handle.write(line) # newline handled by PersistRegistry
         handle.flush()
-        self.buffers[source_id].clear()
+        self.buffer.clear()
+        self._get_file_index()
 
-    def _get_buffer(self, source_id : str) -> Deque[str]:
-        return self.buffers[source_id]
+    def _get_buffer(self) -> Deque[str]:
+        return self.buffer
     
-    def _get_file_index(self, source_id : str) -> int:
-        if self.file_indices[source_id]:
-            if self.file_indices[source_id] >= self.max_files:
-                self.file_indices[source_id] = 0
-                return 0
-            else:
-                return ++self.file_indices[source_id]
+    # called by _rotate(): so we start at 0, write 001 the first time
+    def _get_file_index(self) -> int:
+        if self.file_index >= self.max_files:
+            self.file_index = 1
+            return 1
         else:
-            self.file_indices[source_id] = 0
-            return 0
+            self.file_index += 1
+            return self.file_index
 
-    def _get_handle(self, source_id : str) -> IO[Any] :
-        if self.handles[source_id] and not self.handles[source_id].closed:
-            return self.handles[source_id]
-        else:
-            path = Path.joinpath(
-                self.log_dir,
-                str(source_id),
-                f"{source_id}_{self.file_indices[source_id]:03d}.log"
-            )
-            self.handles[source_id] = open(path, "w")
-            return self.handles[source_id]
+    def create_dir(self):
+        path = Path.joinpath(
+            self.log_dir,
+            str(self.source_id)
+        )
+        path.mkdir(parents=True, exist_ok=True)
 
+    def _create_handle(self) -> IO[Any] :
+        path = Path.joinpath(
+            self.log_dir,
+            # str(self.source_id),
+            f"{self.source_id}_{self.file_index:03d}{constants.log_file_extension}"
+        )
+        print(path)
+        handle = open(path, "w")
+        return handle
+
+    def _get_handle(self) -> IO[Any] :
+        self.handle = self._create_handle()
+        return self.handle
+
+    # case of exit on failure
     def _cleanup(self) -> None :
-        for id, buffer in self.buffers.items():
-            self._rotate(id)
+        # ensure no more messages are added to the queue
+        self._thread_died = True
 
-        for id, handle in self.handles.items():
-            handle.close()
-
-        self._queue.put_nowait(None)
+        # empty the queue : we are in degradated mode
+        # -> best-effort : keep last 3 in case of queue full
+        last_messages = self._drain_last_messages()
         self._thread.join()
 
+        self.buffer.extend(last_messages)
+        self._conclude_rotation()
+
+    def _drain_last_messages(self, keep: int = 3) -> list:
+        last_messages : Deque[str] = deque(maxlen=keep)
+
+        while True:
+            try:
+                msg = self._queue.get_nowait()
+            except Empty:
+                # poison pill the thread
+                self._queue.put(None)
+                break
+            except Exception as e:
+                # crash on any edge case (thread dead, race condition with drain, etc.)
+                raise e
+
+            last_messages.append(f"[LAST_RESORT] : {msg}")
+
+        return list(last_messages)
+
+    def _conclude_rotation(self):
+        try:
+            for line in self.buffer:
+                self.handle.write(line)
+            self.handle.flush()
+            self.buffer.clear()
+            self.handle.close()
+        except OSError:
+            pass  # best-effort, we're on cleanup
+
     def close(self) -> None:
-        self._cleanup()
+        last_messages = None
+        if not self._thread_died and self._queue.qsize() < self._min_drain_threshold:
+            self._queue.join()  # clean drain
+        else:
+            self._stop_event.set()
+            last_messages = self._drain_last_messages()
+
+        self._thread_died = True    
+        self._queue.put(None)
+        self._thread.join()
+
+        if last_messages is not None:
+            self.buffer.extend(last_messages)
+            self._conclude_rotation()
 
 # future implems
 @dataclass
 class InMemoryBackend:
-    max_lines: int = 100
-    # ring buffer per source_id
-    def write(self, source_id: str, line: str) -> None:
-        pass
+    def write(self, source_id: str, line: str) -> None:...
+    def close(self) -> None:...
 
 @dataclass
 class NullBackend:
-    def write(self, source_id: str, line: str) -> None:
-        pass
+    def write(self, source_id: str, line: str) -> None:...
+    def close(self) -> None:...

@@ -1,7 +1,7 @@
 from .persist_backend import (
-    NoOpBackend as NoOpBackend,
     PersistBackend as PersistBackend,
     FileBackend as FileBackend,
+    NoOpBackendRunner as NoOpBackendRunner,
     FileBackendRunner as FileBackendRunner
 )
 from .persist_strategy import (
@@ -10,10 +10,5 @@ from .persist_strategy import (
     PersistDiscarded as PersistDiscarded,
     PersistNone as PersistNone
     )
-from .circuit_breaker_config import (
-    PersistConfig as PersistConfig,
-    PersistConfigLocal as PersistConfigLocal,
-    PersistConfigNetwork as PersistConfigNetwork,
-    CircuitBreakerConfig as CircuitBreakerConfig
-)
+
 from .persist_registry import PersistRegistry as PersistRegistry

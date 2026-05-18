@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from .log_event import LogEvent
+from .seen_sequences import SeenSequences
 from taskweave.snapshots import SessionSnapshot
-from taskweave.buses import SeenSequences
 
 @dataclass
 class Enveloppe:

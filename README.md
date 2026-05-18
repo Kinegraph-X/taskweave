@@ -134,7 +134,7 @@ fetch_classifier = Classifier(
     # taskweave does not handle retry — unmatched lines (connection errors, warnings)
     # are kept on disk. Recovery logic belongs to the app.
     persist=Persist_Verbose_and_Discarded(
-        backend=FileBackend(log_dir=constants.log_folder),
+        backend=FileBackend(log_dir=constants.log_dir),
     )
 )
 ```

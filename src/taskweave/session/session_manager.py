@@ -3,7 +3,6 @@ import os, threading
 from queue import Queue
 from uuid import uuid4
 from time import time, sleep
-from .session import Session
 from taskweave.context import Config, get_app_context
 config, constants, args = get_app_context()
 from taskweave.persist import PersistRegistry, FileBackendRunner
@@ -17,7 +16,7 @@ from taskweave.messages import MsgType, LogEvent, SourceType
 from taskweave.states import SessionState, TaskState, PipelineState
 from taskweave.workers import WorkerPool, WorkerManager, SubProcessManager
 from taskweave.logging import LogStore
-from taskweave.utils import TaskId
+from taskweave.utils import TaskId, Session
 
 class SessionManager:
     def __init__(
@@ -38,10 +37,9 @@ class SessionManager:
             self.log_failure,
             cancel_policy
         )
-        self.session.pipelines = self.orchestrator.pipelines
         self._execution_pools : dict[str, TaskRunner] = {}
         self._global_completion_queue : Queue = Queue()
-        self.log_store = LogStore(log_dir = constants.log_folder)
+        self.log_store = LogStore(log_dir = constants.log_dir)
         self._observability_policy = observability_policy
         (
             self.stream_writer,
@@ -104,14 +102,14 @@ class SessionManager:
             self._push_event(LogEvent(
                 msg_type = MsgType.STATE_CHANGE,
                 source_type = SourceType.TASK,
-                source_id = task_spec.name,    # safe : Task.name is cast in post_init
+                source_id = task_spec.name,
                 timestamp=time()
             ))
         
         # ensures ordering on disk and unicity on task names
         task_spec.name = self.log_store.register(
             session_id = self.session.id,
-            source_id = task_spec.name    # safe : Task.name is cast in post_init
+            source_id = task_spec.name
         )
 
         # synchronize logging and persitance
@@ -240,9 +238,8 @@ class SessionManager:
             self.log_failure,
             cancel_policy
         )
-        self.session.pipelines = self.orchestrator.pipelines
         self._execution_pools = {}
-        self.log_store = LogStore(log_dir = constants.log_folder)
+        self.log_store = LogStore(log_dir = constants.log_dir)
 
     def ensure_context_safe(self):
-        os.makedirs(constants.log_folder, exist_ok = True)
+        os.makedirs(constants.log_dir, exist_ok = True)
