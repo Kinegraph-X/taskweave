@@ -6,11 +6,6 @@ from taskweave.utils import TaskId, SinkContext
 
 from taskweave_protocol import LogEvent, MsgType, SourceType, RoutingPolicy
 
-
-class LogProducer(Protocol):
-    def on_line(self, source_id: str, line: str) -> LogEvent:...
-    def make_sink(self) -> None :...
-
 @dataclass(kw_only = True)
 class LogEventProducer:
     """

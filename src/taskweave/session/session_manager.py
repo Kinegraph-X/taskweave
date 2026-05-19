@@ -121,7 +121,8 @@ class SessionManager:
     
     def add_pool(self, pool_name : str, max_parallel : int = 4) -> PoolStrategy:
         """
-        pools subscribe to StreamWriter once
+        pools are a parallelization/synchronization mecanism
+        The user defines Task.strategy, SessionManager makes the glue
         """
         manager = WorkerManager(
             max_count = max_parallel,
@@ -146,7 +147,7 @@ class SessionManager:
             global_completion_queue = self._global_completion_queue,
             event_bus = self._log_bus
         )
-        task._runner = task.strategy.get_runner(
+        task._runner = task.strategy._get_runner(
             context = context
         )
 

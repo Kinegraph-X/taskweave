@@ -13,7 +13,7 @@ from taskweave_protocol import LogEvent, MsgType, SourceType, OutputType
 @dataclass
 class ClassifyingProducer:
     """
-    This type is meant to be compatible with LogEventProducer:
+    This type is generic to LogProducer (LogEventProducer is the default implem):
     the "dialect" package must not be coupled.
     the "workers" package consumes LogProducer (LegEventProducer passed by default in taskweave)
     """
@@ -23,7 +23,7 @@ class ClassifyingProducer:
     def on_line(self, source_id: str, line: str) -> LogEvent | None:
         # Generator consumed eagerly here
         # dict() because we need random access by name to build parsed.
-        # but using a generator in classify() is just for practice purpose
+        # using a generator in classify() is just for practice purpose
         results = dict(
             (name, (output_type, parse_result))
             for name, output_type, parse_result in self.classifier.classify(line)

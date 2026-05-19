@@ -9,7 +9,7 @@ Voilà le bilan structuré.
 - [*] Créer `taskweave-transport` avec `ControlTransport`, `StdinTransport`, `SocketTransport`
 - [*] Implémenter `PersistRegistry` owned by `SessionManager`
 - [*] Implémenter `RoutingPolicy` sur `LogEvent`
-- [ ] Supprimer `Task.producer.persist` — option 2, `SessionManager` seul responsable
+- [*] Supprimer `Task.producer.persist` — option 2, `SessionManager` seul responsable
 - [*] Enrichir `ExecutionContext` avec `MiniBus` et `PersistRegistry`
 - [*] Implémenter `make_sink(context)` sur `LogProducer` — symétrique de `make_runner()`
 - [*] Implémenter `_wire_event_channel()` sur `SessionManager`
@@ -22,13 +22,15 @@ Voilà le bilan structuré.
 - [ ] Implémenter `ErrorChannel` sur socket séparé
 - [ ] Implémenter `ControlChannel` avec `ControlDialect` et `CommandSerializer`
 - [*] Ajouter `control: ControlDialect | None` sur `Task` (nullable, opt-in)
+- [*] Implémenter `HeartBeat`
+- [implem partiellle] `BenchmarkCollector` comme backend de logging alternatif (permet de lancer une session à blanc et d'observer les seuils de heartbeat pour chaque tâche)
 
 **Tests**
 - [ ] Machine à états — transitions illégales
 - [ ] Snapshot immutabilité — muter la source ne mute pas le snapshot
 - [ ] Routage callbacks — `on_success` / `on_failure` / `on_finally` exclusifs et indépendants
 - [ ] Exception dans callback — les autres callbacks continuent
-- [ ] Backend timeout — non bloquant pour l'orchestrateur
+- [*] Backend timeout — non bloquant pour l'orchestrateur
 - [ ] Race condition completion/cancel — via `_completion_dispatch`
 - [ ] `HeartBeat` — avec `FakeClock` et `FakeSleep` injectés
 - [*] `CircuitBreaker` — ouverture après threshold, recovery après timeout
@@ -37,9 +39,8 @@ Voilà le bilan structuré.
 
 **Prospectif — à poser sans implémenter**
 - [ ] `EventDispatcher` côté client — symétrique de `Classifier`
-- [ ] `ControlDialect` dans `taskweave-protocol`
-- [ ] `BenchmarkCollector` comme backend de logging
-- [ ] `replay_since(cursor)` sur `StreamWriter` pour reconnexion client
+- [ ] `ControlDialect` dans `taskweave-dialect`
+- [ ] `replay_since(snapshot)` sur `SessionManager` pour reconnexion client
 
 ---
 
@@ -50,53 +51,88 @@ Voilà le bilan structuré.
 # avant
 name: str
 persist: PersistStrategy | None
-producer: LogProducer
+producer: LogProducer | None
+strategy : WorkerPool
 
 # après
-name: TaskId                           # plus de conversion dans __post_init__
-persist: PersistStrategy | None        # inchangé — mais géré par SessionManager
-persist_config: CircuitBreakerConfig   # nouveau
-timeout_profile: TimeoutProfile        # nouveau, default NORMAL
+name: src | TaskId           # conversion vers TaskId dans __post_init__
+producer: LogProducer        # defaulted to LogEventProducer
+# ClassifyingProducer.strategy defines RoutingPolicy on LogEvent
+backend : PersistBackend    # un seul point de définition de la persistance, pour gérer classified or default
+# avec PersistBackend.config: CircuitBreakerConfig   # nouveau
 control: ControlDialect | None         # nouveau, opt-in
-# producer.persist supprimé
+strategy : PoolStrategy | None        # utile uniquement si choix d'un pool synchronisé inter-tâches (WorkerManager maintenant caché dans la lib) 
 ```
 
 **`LogEvent`**
 ```python
-# avant
-parsed: Any
+# réflexion sur l'ancien
+parsed: Any                         # pourrait être dict | None
 
-# après
-parsed: Any                            # inchangé — assumé et documenté
-routing: RoutingPolicy                 # nouveau — forward + persist
-sequence: int                          # à vérifier si déjà présent
+# ajouts
+routing: RoutingPolicy                 # nouveau — forward + persist, le message est maintenant le seul à connaître le routing
+sequence: int                          # provides minimal continuity proof in logs
 ```
 
 **`SessionManager`**
 ```python
 # nouveaux paramètres de construction
+# déclaration d'intention de l'utilisateur (code un peu + self-documenting)
 observability_policy: ObservabilityPolicy = ObservabilityPolicy.BEST_EFFORT
-backend_config: CircuitBreakerConfig | None = None
+# définit si le canal d'erreur (StreamWriter.emit_internal()) reçoit un snapshot de l'orchestrateur. La vraie policy est surtout le min_drain_threshold sur PersistBackend, en cas de backend qui accumule dans sa queue (queue non-bloquante sur les writes et min_drain_threshold. Utiles pour être capable de raise et d'ouvrir le circuit, et pour la testabilité : min_drain_threshold surdimmensionné si on lance un backend et qu'on le clôt immédiatement garantit le clean drain. Si trop de messages en queue, race-condition, mais on accepte, et on garantit le log uniquement pour les 3 derniers)
 
 # nouvelles méthodes
-def add_pool(pool: ExecutionPool) -> None
-def register_failure_behavior(cb: Callable[[ObservabilityFailureContext], None]) -> None
+def add_pool(pool: ExecutionPool) -> PoolStrategy       # PoolStrategy est une déclaration, SessionManager abstrait le branchement sur le worker via le TaskRunner (ancienne idée de TaskStrategy rationnalisée : le runner est indépendant de la déclaration d'intention)
+
+# restructurées
+def add_task() # délègue a _define_runner(self, task : Task) -> None et _handle_task_persitance(self, task_spec : Task) -> Callable | None: return def cleanup() if task_spec.backend (cleanup pour LifeCycle)
+```
+
+** MiniBus **
+```python
+def __init__()
+    self._writer = writer
+    self._observability_policy = observability_policy
+    self._failure_behavior = failure_behavior
+    self._last_seen_sequences : dict[TaskId, SeenSequences] = {} # du fait d'un canal d'erreur indépendant du logging (pour propager l'échec du logging), branchement entre MiniBus.emit_internal et StreamWriter._on_internal_event, fait par SessionManager
+def emit(self, event: LogEvent) -> None:
+def emit_internal(self, event : LogEvent) -> None:
+    self._handle_observability_policy(event)
+```
+
+** TaskStrategy devient ExecutionStrategy**
+```python
+class ExecutionStrategy(Protocol):
+    def _get__runner(self, context : ExecutionPool) -> TaskRunner
+# avec ExecutionPool(
+        #     source_id = task.name,
+        #     pools = self._execution_pools,
+        #     global_completion_queue = self._global_completion_queue,
+        #     event_bus = self._log_bus
+        # )
+# juste un contexte, consommé ou pas : fonctionne quel que soit l'implem
 ```
 
 **`WorkerManager`**
 ```python
 # paramètre de construction ajouté
-_completion_queue: Queue | None = None  # underscore — usage interne
-_event_bus: MiniBus | None = None       # underscore — usage interne
+_completion_queue: Queue | None = None  # underscore — usage interne, pensée globale à la lib, mais découplage quand-même sur le package "workers"
+_event_bus: MiniBus | None = None       # underscore — usage interne, pensé instance unique, point de branchement unique avec StreamWriter, mais découplage quand-même sur le package "workers"
 ```
 
-**`HeartBeatStrategy`**
+**`HeartBeatConfig`**
 ```python
 threshold: float
 max_threshold: float                   # borne explicite
 max_attempts: int
 clock: Callable[[], float]             # injectable pour tests
 sleep: Callable[[float], None]         # injectable pour tests
+
+# mécanisme de détecion de process stale ou lent : 
+# implémenté sur WorkerPool : là où on poll l'event_queue
+class Heartbeat:
+    config : HeartBeatConfig
+    def beat(): if event in ACTIVITY_EVENTS : attempts = 0 # sinon la durée de battement croît jusqu'à max_threshold, puis on propage HEARTBEAT_TIMEOUT
 ```
 
 **`MsgType`**

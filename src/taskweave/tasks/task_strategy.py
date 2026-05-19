@@ -11,28 +11,28 @@ from taskweave.buses import MiniBus
 from taskweave.info_stream import StreamWriter
 
 class ExecutionStrategy(Protocol):
-    def get_runner(
+    def _get_runner(
             self,
             context : ExecutionContext
-        ):
+        ) -> TaskRunner:
         raise NotImplementedError
 
 
 @dataclass(kw_only = True)
 class PoolStrategy:
     pool_name : str
-    def get_runner(
+    def _get_runner(
             self,
             context : PoolExecutionContext
-        ):
+        ) -> TaskRunner:
         return context.pools[self.pool_name]
 
 @dataclass(kw_only = True)
 class SynchronousStrategy:
-    def get_runner(
+    def _get_runner(
             self,
             context : SynchronousExecutionContext
-        ):
+        ) -> TaskRunner:
         manager = SubProcessManager(
             source_id = str(context.source_id),
             log_bus = context.event_bus,
@@ -46,7 +46,7 @@ class ExternalStrategy:
     This could be implemented depending on your syncing strategy:
     progress file on disk, distant queue, socket synchronisation...
     """
-    def get_runner(
+    def _get_runner(
             self,
             context : ExecutionContext
-        ):... # -> ExternalRunner
+        ) -> TaskRunner:... # -> ExternalRunner
