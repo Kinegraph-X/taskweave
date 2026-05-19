@@ -4,7 +4,7 @@ from time import time
 
 from taskweave.context import get_app_context
 config, constants, args = get_app_context()
-from taskweave.messages import LogEvent, MsgType, Enveloppe, SourceType
+from taskweave_protocol import LogEvent, MsgType, Enveloppe, SourceType
 from taskweave.tasks import Task, PoolTaskRunner, SubprocessTaskRunner
 from taskweave.workers import WorkerManager
 from taskweave.session import SessionManager

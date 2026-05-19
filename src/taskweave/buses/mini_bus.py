@@ -1,10 +1,10 @@
 from typing import Callable, Any
 
-from taskweave.messages import SeenSequences
+from taskweave_protocol import SeenSequences
 
 from taskweave.utils import TaskId
 from taskweave.info_stream import StreamWriter
-from taskweave.messages import LogEvent
+from taskweave_protocol import LogEvent
 from taskweave.buses import ObservabilityPolicy
 from taskweave.snapshots import SessionSnapshot
 

@@ -6,14 +6,12 @@ from .pipeline import Pipeline
 
 from taskweave.states import PipelineState, TaskState
 from taskweave.tasks import Task, PipelineTask, CancelPolicy, ExternalStrategy
-from taskweave.messages import LogEvent, MsgType
 from taskweave.utils import TaskId
 from taskweave.workers import TaskOutcome, FinalStatus
 
 class PipelineOrchestrator:
     def __init__(
             self,
-            session_id : str,
             on_pipeline_failure : Callable[[str, str], None],
             cancel_policy=CancelPolicy.CANCEL_PENDING_ONLY
             ):

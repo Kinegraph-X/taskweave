@@ -2,7 +2,7 @@ from typing import Callable, Protocol
 from dataclasses import dataclass, field
 from taskweave.utils import TaskId, CmdParam
 from taskweave.workers import WorkerPool, WorkerManager, SubProcessManager
-from taskweave.messages import LogProducer
+from taskweave_protocol import LogProducer
 from taskweave.buses import MiniBus, ObservabilityPolicy, HeartbeatConfig
 from taskweave.info_stream import StreamWriter
 
@@ -29,7 +29,7 @@ class TaskRunner(Protocol):
 class PoolTaskRunner:
     max_parallel: int = field(default = 4)
     # default manager for static type checking : not meant to be instanciated by default
-    manager: WorkerPool = field(default_factory= lambda : WorkerManager(log_bus = MiniBus(writer= StreamWriter(), observability_policy=ObservabilityPolicy.RELAXED, failure_behavior = lambda: None)))
+    manager: WorkerPool = field(default_factory= lambda : WorkerManager(log_bus = MiniBus(writer= StreamWriter(), observability_policy=ObservabilityPolicy.BEST_EFFORT, failure_behavior = lambda: None)))
 
     def __post_init__(self):
         self.manager.max_count = self.max_parallel
@@ -65,7 +65,7 @@ class PoolTaskRunner:
 @dataclass(kw_only = True)
 class SubprocessTaskRunner:
     # default manager for static type checking : not meant to be instanciated by default
-    manager : WorkerPool = field(default_factory = lambda : SubProcessManager(source_id = "", log_bus = MiniBus(writer= StreamWriter(), observability_policy=ObservabilityPolicy.RELAXED, failure_behavior = lambda : None)))
+    manager : WorkerPool = field(default_factory = lambda : SubProcessManager(source_id = "", log_bus = MiniBus(writer= StreamWriter(), observability_policy=ObservabilityPolicy.BEST_EFFORT, failure_behavior = lambda : None)))
 
     def __post_init__(self):...
 

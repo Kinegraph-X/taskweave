@@ -3,7 +3,7 @@ import threading, time
 
 from .heartbeat_config import HeartbeatConfig
 
-from taskweave.messages import MsgType, LogEvent, SourceType
+from taskweave_protocol import MsgType, LogEvent, SourceType
 from taskweave.buses import MiniBus
 from taskweave.utils import TaskId
 

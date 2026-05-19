@@ -15,7 +15,7 @@ from taskweave.utils import (
 from taskweave.context import get_app_context
 config, constants, args = get_app_context()
 from taskweave.utils import TaskId
-from taskweave.messages import LogEvent, SourceType, MsgType
+from taskweave_protocol import LogEvent, SourceType, MsgType
 
 class BackendFailure(Exception):...
 

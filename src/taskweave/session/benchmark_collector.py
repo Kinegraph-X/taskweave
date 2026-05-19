@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from time import time
 from .benchmark_report import BenchmarkReport
 
-from taskweave.messages import LogEvent, MsgType
+from taskweave_protocol import LogEvent, MsgType
 from taskweave.utils import TaskId
 
 @dataclass(kw_only = True)

@@ -1,7 +1,11 @@
 from typing import Callable
 import time, random
 
+
 def retry_with_backoff(fn: Callable, max_attempts: int = 5) -> None:
+    """
+    NOT IMPLEMENTED
+    """
     for attempt in range(max_attempts):
         try:
             fn()

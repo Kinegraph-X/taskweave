@@ -6,6 +6,7 @@ from .ref import Ref as Ref
 from .cmd_param import CmdParam as CmdParam
 from .task_id import TaskId as TaskId
 from .session import Session as Session
+from .sink_context import SinkContext as SinkContext
 
 from .circuit_breaker import (
     CircuitBreaker as CircuitBreaker,

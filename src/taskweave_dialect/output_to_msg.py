@@ -1,4 +1,4 @@
-from taskweave.messages import MsgType
+from taskweave_protocol import MsgType
 
 from taskweave_protocol import OutputType
 

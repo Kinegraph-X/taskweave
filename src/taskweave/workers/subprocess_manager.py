@@ -13,7 +13,7 @@ from .cancel_intent import CancelIntent
 from .completed_task import CompletedTask
 
 from taskweave.utils import TaskId
-from taskweave.messages import LogEvent, LogProducer, LogEventProducer, MsgType, SourceType
+from taskweave_protocol import LogEvent, LogProducer, LogEventProducer, MsgType, SourceType
 from taskweave.buses import MiniBus, Heartbeat, HeartbeatConfig
 
 

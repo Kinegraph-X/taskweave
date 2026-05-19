@@ -1,6 +1,6 @@
 from typing import List, Callable
 from dataclasses import dataclass
-from taskweave.messages import LogProducer
+from taskweave_protocol import LogProducer
 
 @dataclass
 class WorkItem:

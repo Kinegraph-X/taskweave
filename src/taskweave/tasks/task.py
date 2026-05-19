@@ -7,7 +7,7 @@ from .task_runner import TaskRunner, NoOpRunner
 
 from taskweave.persist import PersistBackend
 from taskweave.utils import CmdParam, TaskId, ReverseStrAccumulator, StrAccumulator
-from taskweave.messages import LogProducer, LogEventProducer
+from taskweave_protocol import LogProducer, LogEventProducer
 
 from taskweave_transport import ControlDialect
 

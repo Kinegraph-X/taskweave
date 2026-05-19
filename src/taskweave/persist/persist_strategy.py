@@ -2,7 +2,7 @@ import time
 from typing import Callable, Protocol
 from dataclasses import dataclass, field
 
-from taskweave.messages import LogEvent, MsgType, SourceType, RoutingPolicy
+from taskweave_protocol import LogEvent, MsgType, SourceType, RoutingPolicy
 
 from taskweave_protocol import OutputType
 

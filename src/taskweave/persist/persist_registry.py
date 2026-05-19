@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 
 from .persist_backend import PersistBackendRunner
 
-from taskweave.messages import LogEvent
+from taskweave_protocol import LogEvent
 from taskweave.utils import TaskId
 
 @dataclass(kw_only = True)

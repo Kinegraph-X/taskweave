@@ -1,5 +1,5 @@
 from typing import Callable, Protocol
-from taskweave.messages import LogEvent, LogProducer
+from taskweave_protocol import LogEvent, LogProducer
 from taskweave.utils import StrSerializable
 from taskweave.buses import HeartbeatConfig
 

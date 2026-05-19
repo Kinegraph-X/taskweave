@@ -17,7 +17,7 @@ from .final_status import FinalStatus
 from taskweave.context import get_app_context
 config, constants, cmd_line_args = get_app_context()
 from taskweave.states import WorkerState, WorkerContext
-from taskweave.messages import LogEvent, LogProducer, MsgType, SourceType
+from taskweave_protocol import LogEvent, LogProducer, MsgType, SourceType
 from taskweave.buses import MiniBus, Heartbeat, HeartbeatConfig
 from taskweave.utils import TaskId
 

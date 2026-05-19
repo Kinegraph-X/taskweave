@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from .task import Task
 from .task_strategy import TaskRunner, ExecutionStrategy, PoolTaskRunner, SubprocessTaskRunner
 
-from taskweave.messages import LogProducer
+from taskweave_protocol import LogProducer
 from taskweave.snapshots import TaskSnapshot
 from taskweave.states import TaskState, Lifecycle, CleanupStrategy, task_transitions
 from taskweave.utils import TaskId, CmdParam

@@ -12,11 +12,11 @@ from taskweave.info_stream import StreamWriter, SinkScope
 from taskweave.snapshots import SessionSnapshot
 from taskweave.pipeline import PipelineOrchestrator, Pipeline
 from taskweave.tasks import CancelPolicy, Task, PoolStrategy, PoolTaskRunner, TaskRunner, ExecutionPool
-from taskweave.messages import MsgType, LogEvent, SourceType
+from taskweave_protocol import MsgType, LogEvent, SourceType
 from taskweave.states import SessionState, TaskState, PipelineState
-from taskweave.workers import WorkerPool, WorkerManager, SubProcessManager
+from taskweave.workers import WorkerManager
 from taskweave.logging import LogStore
-from taskweave.utils import TaskId, Session
+from taskweave.utils import TaskId, Session, SinkContext
 
 class SessionManager:
     def __init__(
@@ -25,15 +25,11 @@ class SessionManager:
             config : Config | None = None,
             on_event : Callable | None = None,
             cancel_policy : CancelPolicy = CancelPolicy.CANCEL_PENDING_ONLY,
-            observability_policy : ObservabilityPolicy = ObservabilityPolicy.RELAXED
+            observability_policy : ObservabilityPolicy = ObservabilityPolicy.BEST_EFFORT
         ):
-        self.ensure_context_safe()
-        self.session = Session(
-            # config.media_path,
-            # config.keywords,
-        )
+        self.ensure_safe_context()  # log_dir and further needs
+        self.session = Session()
         self.orchestrator = PipelineOrchestrator(
-            str(self.session.id),
             self.log_failure,
             cancel_policy
         )
@@ -42,19 +38,22 @@ class SessionManager:
         self.log_store = LogStore(log_dir = constants.log_dir)
         self._observability_policy = observability_policy
         (
-            self.stream_writer,
-            self._log_bus,
-            self._persist_registry
-            ) = self._make_broadcast_channel(on_event = on_event)
+        self.stream_writer,
+        self._log_bus,
+        self._persist_registry
+        ) = self._make_broadcast_channel(on_event = on_event)
 
     def _make_broadcast_channel(
             self,
             on_event : Callable | None
         ) -> tuple[StreamWriter, MiniBus, PersistRegistry]:
         """
-        StreamWriter coordonnate external sinks.
-        MiniBus decouples internal producers from StreamWriter.
-        Together: event-channel of the session
+        Minibus coordinates loggging.
+        It decouples internal producers from StreamWriter.
+        Client sinks are opaque to StreamWriter.
+        PersistRegistry abstracts the two directions in StreamWriter:
+        monitoring & persistance.
+        Together they're the event-channel of the session
         """
         persist_registry = PersistRegistry()
         writer = StreamWriter(on_event = on_event, persist_registry = persist_registry)
@@ -153,9 +152,10 @@ class SessionManager:
 
     def _handle_task_persitance(self, task_spec : Task) -> Callable | None:
         """
-        due to decoupling with BasicWorker, tasks without specific log_producer
-        declare persistance mecanism on themselves,
-        (Specific producers are in the "dialect" package)
+        This method connects LogProducer, RoutingPolicy and PersistBackend
+        (Due to decoupling with the "workers" package, 
+        tasks without specific producer are defaulted to LogEventProducer.
+        Specific producers are in the "dialect" package)
         """
         if task_spec.backend:
             backend_runner = FileBackendRunner(
@@ -163,10 +163,11 @@ class SessionManager:
                 backend = task_spec.backend,
                 error_sink = self._log_bus.emit_internal
             )
-            self.stream_writer.register_sink(
-                task_spec.backend.write,
-                scope = SinkScope.SCOPED,
-                source_id = task_spec.name
+            task_spec.producer.make_sink(
+                context = SinkContext(
+                    source_id = str(task_spec.name),
+                    backend = task_spec.backend
+                )
             )
             self._persist_registry.add_context(
                 task_spec.name,
@@ -241,5 +242,5 @@ class SessionManager:
         self._execution_pools = {}
         self.log_store = LogStore(log_dir = constants.log_dir)
 
-    def ensure_context_safe(self):
+    def ensure_safe_context(self):
         os.makedirs(constants.log_dir, exist_ok = True)
