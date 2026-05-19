@@ -5,19 +5,18 @@ from dataclasses import dataclass, field
 from queue import Queue, Full, Empty
 from collections import deque
 
-from taskweave.utils import (
-    CircuitBreaker,
-    TooManyFailuresError,
-    CircuitBreakerConfig,
-    PersistConfig
-)
+from .backend_exception import BackendTransientFailure, BackendFatalError
+from .circuit_breaker import CircuitBreaker
 
 from taskweave.context import get_app_context
 config, constants, args = get_app_context()
-from taskweave.utils import TaskId
-from taskweave_protocol import LogEvent, SourceType, MsgType
+from taskweave.utils import (
+    CircuitBreakerConfig,
+    PersistConfig,
+    TaskId
+)
 
-class BackendFailure(Exception):...
+from taskweave_protocol import LogEvent, SourceType, MsgType, BackendErrorKind
 
 class PersistBackend(Protocol):
     config : PersistConfig
@@ -78,9 +77,25 @@ class FileBackendRunner:
         self._thread = threading.Thread(target=self._consume_loop, daemon=True)
         self._thread.start()
 
-    # circuit_breaker accepts multiple "queue full" errors,
-    # depending on config, and we hope for recovery.
-    # on OSError -> thread exits -> propagate -> prevent further writes
+    """
+    Exemple implementation for short-circuitable backend:
+    - depending on CircuitBreakerConfig, we hope for recovery, i.e,
+    we may accept timeout, service-unavailable, maybe even several queue_full error, etc.
+    - the _write() method should raise: ideal case is it triages
+    (distinct logics between disk and network)
+    - In network context, _write() maps HTTP error codes to BackendErrorKind
+    - Every error is considered transient, and if there's an original exception,
+    it is re-raised, encapsulated in a BackendTransientFailure
+    - The circuit breaker then triages theses internal exeptions between 
+    really transient and fatal, et re-raise as fatal if appropriate, while
+    still continuing
+    - in disk-access context, the circuit breaker has no other usage than triaging :
+    config is threshold = 1, recovery_timeout = 0, so as it definitely opens on 
+    the first error, and receives only BackendErrorKinds that it will triage as fatal
+    Example : on OSError -> raise BackendTransientFailure.kind = BackendErrorKind.OS_ERROR
+      -> prevent further writes -> propagate
+      -> backend is forcefully terminated, and the client may forcefully stop the entire task
+    """
     def write(self, source_id: str, line: str) -> None:
         if self._thread_died:
             return
@@ -89,32 +104,54 @@ class FileBackendRunner:
                 fn = self._write,
                 args_list = [source_id, line]
             )
-        except TooManyFailuresError as e:
-            self._propagate_error(source_id, e)
+        except BackendFatalError as e:
+            exc = BackendFatalError(
+                kind = e.kind,
+                msg = e.msg
+            )
+            self._propagate_error(source_id, exc)
             self._cleanup()
+        except BackendTransientFailure as e:
+            if e.kind == BackendErrorKind.CIRCUIT_OPEN:
+                self._propagate_transient_error(source_id, e)
+        except:     # non-disk related exceptions in our case (never triggered)
+            pass
 
     def _consume_loop(self):
         try:
             self._loop()
-        except (OSError, IOError) as e:
-            self._thread_died = True
-            self._propagate_error(self.source_id, e)
-            self._cleanup()
+        except Exception as e:
+            raise e
 
     def _loop(self):
         while True and not self._stop_event.is_set():
             line = self._queue.get()
             if line is None:    # poison pill
                 break
-            self._append(self.source_id, line)
+            try:
+                self._append(self.source_id, line)
+            except (OSError, IOError) as e: # here we could re-put the message in the queue, to replay
+                self._thread_died = True
+                exc = BackendTransientFailure(
+                    kind = BackendErrorKind.OS_ERROR,
+                    msg = e.msg
+                )
+                self._propagate_error(self.source_id, exc)
+                self._cleanup()
 
     def _write(self, source_id : str, line : str):
         if self._thread_died:
-            raise BackendFailure(f"task {self.source_id} FileBackend : consumer thread died")
+            raise BackendTransientFailure(
+                kind = BackendErrorKind.THREAD_DIED,
+                msg = f"task {self.source_id} FileBackend : consumer thread died"
+            )
         try:
             self._queue.put_nowait(line)
         except Full as e:
-            raise e
+            raise BackendTransientFailure(
+                kind = BackendErrorKind.QUEUE_FULL,
+                msg = "backend dispatch queue full"
+            )
 
     def _append(self, source_id : str, line : str):
         buffer = self._get_buffer()
@@ -123,13 +160,24 @@ class FileBackendRunner:
             self._rotate()
         self._queue.task_done()
 
-    def _propagate_error(self, source_id : str, e : Exception):
+    def _propagate_error(self, source_id : str, e : BackendFatalError):
         self.error_sink(
             LogEvent(
                 source_id = TaskId(source_id),
                 source_type = SourceType.TASK,
-                msg = f"Backend thread died : {str(e)}",
+                msg = f"Backend Fatal error : {e.kind} / {e.msg}",
                 msg_type = MsgType.BACKEND_FAILURE,
+                timestamp = time.time()
+            )
+        )
+
+    def _propagate_transient_error(self, source_id : str, e : BackendTransientFailure):
+        self.error_sink(
+            LogEvent(
+                source_id = TaskId(source_id),
+                source_type = SourceType.TASK,
+                msg = f"Backend open : {e.kind} / {e.msg}",
+                msg_type = MsgType.BACKEND_OPEN,
                 timestamp = time.time()
             )
         )

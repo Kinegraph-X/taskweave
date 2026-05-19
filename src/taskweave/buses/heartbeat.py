@@ -62,7 +62,13 @@ class Heartbeat:
             self,
             event : LogEvent
         ):
-        if event.msg_type in (MsgType.PROGRESS, MsgType.EVENT, MsgType.LOG_LINE, MsgType.BANNER, MsgType.ERROR):
+        if event.msg_type in (
+            MsgType.PROGRESS,
+            MsgType.EVENT,
+            MsgType.LOG_LINE,
+            MsgType.BANNER,
+            MsgType.ERROR
+        ):
             self._attempts = 0
 
         self._log_bus.emit(event)
@@ -81,7 +87,7 @@ class Heartbeat:
         self._log_bus.emit(
             LogEvent(
                 source_id = TaskId(self.source_id),
-                msg_type = MsgType.HEARTBEAT_ERROR,
+                msg_type = MsgType.HEARTBEAT_TIMEOUT,
                 msg = "silent task",
                 timestamp = time.time(),
                 source_type = SourceType.TASK

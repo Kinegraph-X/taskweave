@@ -12,3 +12,10 @@ from .persist_strategy import (
     )
 
 from .persist_registry import PersistRegistry as PersistRegistry
+
+from .circuit_breaker import CircuitBreaker
+
+from .backend_exception import (
+    BackendTransientFailure as BackendTransientFailure,
+    BackendFatalError as BackendFatalError
+)

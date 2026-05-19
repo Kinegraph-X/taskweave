@@ -9,3 +9,4 @@ from .msg_type import MsgType as MsgType
 from .source_type import SourceType as SourceType
 from .routing_policy import RoutingPolicy as RoutingPolicy
 from .seen_sequences import SeenSequences as SeenSequences
+from .backend_error_kind import BackendErrorKind as BackendErrorKind

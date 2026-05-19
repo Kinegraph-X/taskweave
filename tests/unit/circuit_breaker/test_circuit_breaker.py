@@ -1,7 +1,7 @@
 import pytest
 from time import sleep
 
-from taskweave.utils import CircuitBreaker, CircuitBreakerConfig
+from taskweave.utils import CircuitBreaker
 
 class test_persist_config:
     threshold = 5

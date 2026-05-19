@@ -14,5 +14,6 @@ class MsgType(Enum):
     
     ERROR = "error"         # communicate on unknown error (avoid failing silently : always persisted)
     BACKEND_FAILURE = "backend_failure"
+    BACKEND_OPEN    = "backend open"    # short-circuited on "too many errors"
     CALLBACK_ERROR = "callback_error"
-    HEARTBEAT_ERROR = "heartbeat error"
+    HEARTBEAT_TIMEOUT = "heartbeat timeout"
