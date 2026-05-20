@@ -1,0 +1,9 @@
+#!/bin/
+echo "hook ok"
+sleep 3
+pytest tests/unit -q
+if [ $? -ne 0 ]; then
+    echo "Unit tests failed. Commit aborted."
+    exit 1
+fi
+exit 0
