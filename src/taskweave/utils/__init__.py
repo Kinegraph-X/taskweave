@@ -8,11 +8,6 @@ from .task_id import TaskId as TaskId
 from .session import Session as Session
 from .sink_context import SinkContext as SinkContext
 
-from .circuit_breaker import (
-    CircuitBreaker as CircuitBreaker,
-    TooManyFailuresError as TooManyFailuresError
-)
-
 from .circuit_breaker_config import (
     PersistConfig as PersistConfig,
     PersistConfigLocal as PersistConfigLocal,

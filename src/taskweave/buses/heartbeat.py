@@ -7,38 +7,13 @@ from taskweave_protocol import MsgType, LogEvent, SourceType
 from taskweave.buses import MiniBus
 from taskweave.utils import TaskId
 
-"""
-class FakeClock:
-    def __init__(self):
-        self._time = 0.0
-    
-    def tick(self, seconds: float) -> None:
-        self._time += seconds
-    
-    def __call__(self) -> float:
-        return self._time
-
-class FakeSleep:
-    def __init__(self, clock: FakeClock):
-        self._clock = clock
-    
-    def __call__(self, seconds: float) -> None:
-        self._clock.tick(seconds)  # avance le temps sans attendre
-
-# dans le test
-clock = FakeClock()
-sleep = FakeSleep(clock)
-hb = HeartBeat(threshold=5, max_attempts=3, clock=clock, sleep=sleep)
-
-hb.beat(event)       # reset attempts
-sleep(6.0)           # avance le temps fictif
-assert not hb.is_timed_out()
-
-sleep(20.0)          # avance encore
-assert hb.is_timed_out()
-"""
-
 class Heartbeat:
+    """
+    config.max_attempts could be a tool for small adjustments, but
+    is not meant to be documented.
+    The smaller the ratio between threshold & max_threshold is, 
+    the littler the timing threads loops.
+    """
     def __init__(
         self,
         *,

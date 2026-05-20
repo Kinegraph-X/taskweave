@@ -16,6 +16,7 @@ from .persist_registry import PersistRegistry as PersistRegistry
 from .circuit_breaker import CircuitBreaker
 
 from .backend_exception import (
+    BackendException as BackendException,
     BackendTransientFailure as BackendTransientFailure,
     BackendFatalError as BackendFatalError
 )

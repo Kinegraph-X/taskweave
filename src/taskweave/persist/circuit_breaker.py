@@ -13,6 +13,10 @@ class TooManyFailuresError(RuntimeError):...
 
 @dataclass(kw_only = True)
 class CircuitBreaker:
+    """
+    Considers the set of BackendFailureKinds is definitive.
+    Would require an injectable conversion map to discriminate transient & fatal
+    """
     config : PersistConfig = field(default_factory = CircuitBreakerConfig.LOCAL.value)
     def __post_init__(
             self
@@ -39,7 +43,7 @@ class CircuitBreaker:
 
             if e.kind == BackendErrorKind.QUEUE_FULL:
                 # may be considered transient (network) of not (disk)
-                if not self.config.retry_on_queue_full:
+                if self.config.retry_on_queue_full:
                     raise BackendTransientFailure(
                     kind = e.kind,
                     msg = f"{self._threshold} failures on circuit-breaker. Last is: {str(e)}"
@@ -56,6 +60,8 @@ class CircuitBreaker:
                     BackendErrorKind.TIMEOUT,
                     BackendErrorKind.UNKNOWN
             ):
+                # may be a bit verbose to re-raise,
+                # but the implem of the backend and the client decides
                 raise BackendTransientFailure(
                     kind = e.kind,
                     msg = f"{self._threshold} failures on circuit-breaker. Last is: {str(e)}"

@@ -142,7 +142,7 @@ class FileBackendRunner:
     def _write(self, source_id : str, line : str):
         if self._thread_died:
             raise BackendTransientFailure(
-                kind = BackendErrorKind.THREAD_DIED,
+                kind = BackendErrorKind.THREAD_DIED,  # risk of double messaging -> test
                 msg = f"task {self.source_id} FileBackend : consumer thread died"
             )
         try:

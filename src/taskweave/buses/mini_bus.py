@@ -1,13 +1,13 @@
 from typing import Callable, Any
 
-from taskweave_protocol import SeenSequences
+from .observability_policy import ObservabilityPolicy
 
 from taskweave.utils import TaskId
 from taskweave.info_stream import StreamWriter
 from taskweave_protocol import LogEvent
-from taskweave.buses import ObservabilityPolicy
 from taskweave.snapshots import SessionSnapshot
 
+from taskweave_protocol import SeenSequences
 
 class MiniBus:
     """
@@ -38,7 +38,7 @@ class MiniBus:
         self._writer._on_internal_event(event)
     
     def emit(self, event: LogEvent) -> None:
-        if not self._last_seen_sequences[event.source_id]:
+        if not event.source_id in self._last_seen_sequences:
             self._last_seen_sequences[event.source_id] = SeenSequences()
         event.sequence = self._last_seen_sequences[event.source_id].last_seen
         self._writer._on_event(event)
