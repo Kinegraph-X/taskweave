@@ -1,5 +1,5 @@
 #!/bin/
-echo "hook ok"
+echo "pre-commit hook ok"
 sleep 3
 pytest tests/unit -q
 if [ $? -ne 0 ]; then

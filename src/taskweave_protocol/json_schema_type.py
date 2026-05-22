@@ -4,3 +4,4 @@ class JsonSchemaType(Enum):
     INT = "integer"
     FLOAT = "number"
     STRING = "string"
+    BOOL = "bool"

@@ -224,7 +224,7 @@ class SessionManager:
             id=str(self.session.id),
             # media_path=self.session.media_path,
             # keywords=self.session.keywords,
-            state=self.session.state,
+            state = str(self.session.state),
             started_at=self.session.started_at,
             elapsed=time() - self.session.started_at if self.session.started_at else 0,
             pipelines={str(p.id) : p.snapshot() for p in self.orchestrator.pipelines},

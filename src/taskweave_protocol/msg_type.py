@@ -13,6 +13,7 @@ class MsgType(Enum):
     BANNER = "banner"         # métadonnées initiales du process (ex: version ffmpeg, codec)
     
     ERROR = "error"         # communicate on unknown error (avoid failing silently : always persisted)
+    MULTIPLE_MATCHES = "multiple matches on dialect"
     BACKEND_FAILURE = "backend_failure"
     BACKEND_OPEN    = "backend open"    # short-circuited on "too many errors"
     CALLBACK_ERROR = "callback_error"

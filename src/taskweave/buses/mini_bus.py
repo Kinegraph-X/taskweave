@@ -7,7 +7,7 @@ from taskweave.info_stream import StreamWriter
 from taskweave_protocol import LogEvent
 from taskweave.snapshots import SessionSnapshot
 
-from taskweave_protocol import SeenSequences
+from taskweave_protocol import SeenSequences, MsgType
 
 class MiniBus:
     """
@@ -21,15 +21,14 @@ class MiniBus:
             *,
             writer: StreamWriter,
             observability_policy : ObservabilityPolicy,
-            failure_behavior : Callable
+            snapshot_getter : Callable
         ):
         self._writer = writer
         self._observability_policy = observability_policy
-        self._failure_behavior = failure_behavior
+        self._failure_behavior = snapshot_getter
         self._last_seen_sequences : dict[TaskId, SeenSequences] = {}
 
     def _handle_observability_policy(self, event : LogEvent):
-        event.sequence = self._last_seen_sequences[event.source_id].last_seen
         self._last_seen_sequences[event.source_id].sequence_on_failure = event.sequence
         if self._observability_policy == ObservabilityPolicy.SAFE:
             session_snapshot : SessionSnapshot = self._failure_behavior(event)
@@ -40,9 +39,14 @@ class MiniBus:
     def emit(self, event: LogEvent) -> None:
         if not event.source_id in self._last_seen_sequences:
             self._last_seen_sequences[event.source_id] = SeenSequences()
+        self._last_seen_sequences[event.source_id].last_seen += 1
         event.sequence = self._last_seen_sequences[event.source_id].last_seen
         self._writer._on_event(event)
         self._last_seen_sequences[event.source_id].last_seen += 1
 
     def emit_internal(self, event : LogEvent):
+        if not event.source_id in self._last_seen_sequences:
+            self._last_seen_sequences[event.source_id] = SeenSequences()
+        self._last_seen_sequences[event.source_id].last_seen += 1
+        event.sequence = self._last_seen_sequences[event.source_id].last_seen
         self._handle_observability_policy(event)

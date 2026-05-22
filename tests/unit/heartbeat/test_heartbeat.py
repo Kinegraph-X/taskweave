@@ -40,7 +40,7 @@ def test_heartbeat_forwarding():
                 on_event = event_sink
             ), 
             observability_policy = ObservabilityPolicy.SAFE,
-            failure_behavior = lambda : None
+            snapshot_getter = lambda : None
         ),
         config = config
     )
@@ -75,7 +75,7 @@ def test_heartbeat_timeout():
                 on_event = event_sink
             ), 
             observability_policy = ObservabilityPolicy.SAFE,
-            failure_behavior = lambda : None
+            snapshot_getter = lambda : None
         ),
         config = config,
         sleep=sleep

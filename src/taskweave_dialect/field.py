@@ -1,67 +1,86 @@
-from typing import Any, Pattern
-import re, ast
+from typing import Any, Pattern, Callable
+from dataclasses import asdict, field
+import re, ast, json, traceback
+
+from .dialect_error import DialectErrorKind, MSG_TO_ERROR, DialectError
+from .field_parser import DialectParser, FieldParser
+from .dialect_cast import DIALECT_CAST
+
 from taskweave_protocol import FieldSchema, OutputType, JsonSchemaType
 
+
 class Field:
+    """
+    Cast & lightweight Validation step
+    """
     def __init__(
         self,
         *,
         schema: FieldSchema,
         target : str | Pattern,
-        keyword: str = "",      # legacy
-        separator: str = "=",   # legacy
         group : int = 1,
-        category: OutputType = OutputType.PROGRESS
+        category: OutputType = OutputType.PROGRESS,
+        parser : DialectParser = field(init = False)
     ):
         if not target:
-            self.rule = re.compile(rf"{keyword}\s*{separator}\s*([^\s]+?)")
-        elif isinstance(target, str):
-            target = re.sub(r"\s", "\s", target)
-            self.rule = re.compile(rf"{target}")
-        else:
-            self.rule = target
+            raise ValueError('Bad argument to Field() : "target" isn\'t defined')
+        elif not isinstance(target, (str, Pattern)):
+            raise ValueError('Bad argument to Field() : "target" must be str | Pattern')
 
         self.schema = schema
         self.group = group
         self.category = category
+        if callable(parser):
+            parser(target = target)
+        else:
+            self.parser = FieldParser(target = target)
 
-    def __post_init__(self) -> None:
-        if self.rule.groups == 0:
-            raise ValueError(
-                f"Pattern '{self.rule.pattern}' must contain a capturing group — use (...)"
+        try:
+            self.parser.compile()
+        except Exception as e:
+            traceback.print_exception(e)
+        
+        if self.group > self.parser._rule.groups:
+            exc = DialectError(
+                kind = DialectErrorKind.OUT_OF_BOUND_GROUP,
+                pattern = self.parser._rule.pattern,
+                msg = f"""Field declaration : 'target' has {self.parser._rule.groups} group(s), 
+                    but group={self.group} was requested"""
             )
-        if self.group > self.rule.groups:
-            raise ValueError(
-                f"Field Definition : target '{self.rule.pattern}' has {self.rule.groups} group(s), "
-                f"but group={self.group} was requested"
-            )
-        # if self.group != 1:
-        #     raise ValueError(
-        #         "group parameter is only valid for Pattern targets, not str"
-        #     )
+            traceback.print_exception(exc)
+            raise exc
 
-    def parse(self, line : str) -> Any | None:
-        matches = self.rule.findall(line)
-        if matches is not None and len(matches) > self.group:
-            return self.cast(matches[self.group])
-        return None
+    def parse(self, line : str, is_test : bool = False) -> Any | None:
+        try:
+            ret = self.cast(
+                self.parser.parse(
+                    line,
+                    self.group,
+                    is_test
+                )
+            )
+        except Exception as e:
+            raise e
+        return ret
     
-    def cast(self, value : Any) -> Any :
-        match type(ast.literal_eval(value)):
-            case "<class 'int'>":
-                if self.schema.type == JsonSchemaType.INT:
-                    return int(value)
-                else:
-                    raise ValueError(f'literal eval incompatible with declared field type in schema : expected {self.schema.type}, got "int')
-            case "<class 'float'>":
-                if self.schema.type == JsonSchemaType.NUMBER:
-                    return float(value)
-                else:
-                    raise ValueError(f'literal eval incompatible with declared field type in schema : expected {self.schema.type}, got "number')
-            case "<class 'str'>":
-                if self.schema.type == JsonSchemaType.STRING:
-                    return str(value)
-                else:
-                    raise ValueError(f'literal eval incompatible with declared field type in schema : expected {self.schema.type}, got "string')
-            case _ :
-                return str(value)
+    def cast(self, value : str) -> Any :
+        caster = DIALECT_CAST[self.schema.type]
+        assert callable(caster)
+
+        try:
+            ret = caster(value)
+        except Exception as e:
+            raise DialectError(
+                kind = DialectErrorKind.INCOMPATIBLE_JSON_TYPE,
+                msg = f'log eval incompatible with declared field type in schema : expected {self.schema.type}: {self.get_error(e)}',
+                pattern = self.parser._rule.pattern
+            )
+        return ret
+
+    def get_error(self, e : Exception):
+        if isinstance(e, ValueError):
+            return f"ValueError : {str(e)}"
+        elif isinstance(e, TypeError):
+            return f"TypeError : {str(e)}"
+        else:
+            return f"Exception : {str(e)}"

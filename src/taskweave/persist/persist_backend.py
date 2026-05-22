@@ -217,7 +217,6 @@ class FileBackendRunner:
             # str(self.source_id),
             f"{self.source_id}_{self.file_index:03d}{constants.log_file_extension}"
         )
-        print(path)
         handle = open(path, "w")
         return handle
 

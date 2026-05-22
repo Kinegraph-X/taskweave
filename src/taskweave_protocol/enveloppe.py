@@ -7,4 +7,4 @@ from taskweave.snapshots import SessionSnapshot
 class Enveloppe:
     event : LogEvent
     session_snapshot : SessionSnapshot | None = None
-    last_seen_sequences : dict[str, SeenSequences] | None = None # useful for post-mortem analysis
+    last_seen_sequences : dict[str, dict[str, int]] | None = None # useful for post-mortem analysis

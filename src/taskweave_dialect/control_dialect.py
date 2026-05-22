@@ -1,6 +1,6 @@
-from .command_schema import CommandSchema
 from .command_serializer import CommandSerializer
 
+from taskweave_protocol import CommandSchema
 from taskweave_transport import ControlTransport
 
 class ControlDialect:

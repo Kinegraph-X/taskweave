@@ -13,6 +13,8 @@ class persist_config:
 def test_file_backend_nominal(tmp_path):
     os.mkdir(f"{tmp_path}/{constants.log_dir}")
 
+    source_id = "test_task"
+
     backend = FileBackend(
         max_lines = 10,
         max_files = 2,
@@ -22,17 +24,17 @@ def test_file_backend_nominal(tmp_path):
     )
 
     backend_runner = FileBackendRunner(
-        source_id = "test_task",
+        source_id = source_id,
         backend = backend,
         error_sink = lambda : None
     )
 
     for i in range(0, backend.max_lines * backend.max_files):
-        backend_runner.write("test_task", f"line {i}\n")
+        backend_runner.write(source_id, f"line {i}\n")
     
     backend_runner.close()
 
-    files = sorted(tmp_path.glob("**/*.log"))
+    files = sorted(tmp_path.glob(f"**/*{constants.log_file_extension}"))
     all_lines = [l for f in files for l in f.read_text().splitlines()]
     assert len(all_lines) == backend.max_lines * backend.max_files
     

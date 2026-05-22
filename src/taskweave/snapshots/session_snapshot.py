@@ -5,12 +5,12 @@ from taskweave.snapshots import PipelineSnapshot
 from taskweave.states import SessionState
 from .pipeline_failure import PipelineFailure
 
-@dataclass
+@dataclass(kw_only = True)
 class SessionSnapshot:
     id : str
     # media_path : str
     # keywords : List[str]
-    state : SessionState
+    state : str
     started_at : float
     elapsed : float
     pipelines : Dict[str, PipelineSnapshot]

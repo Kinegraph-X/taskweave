@@ -1,4 +1,5 @@
 from typing import List, Callable, TypeVar
+from dataclasses import asdict
 from .sink_scope import SinkScope
 
 from taskweave.persist import PersistRegistry
@@ -74,6 +75,6 @@ class StreamWriter:
         if snapshot:
             enveloppe.session_snapshot = snapshot
         if last_seen_sequences:
-            enveloppe.last_seen_sequences = {str(k) : v for k, v in last_seen_sequences.items()}
+            enveloppe.last_seen_sequences = {str(k) : asdict(v) for k, v in last_seen_sequences.items()}
         for sink in self._error_sinks:
             sink(enveloppe)
