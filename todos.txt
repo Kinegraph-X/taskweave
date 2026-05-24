@@ -102,3 +102,12 @@ Google style + type hints — c'est le plus proche de JSDoc en termes de lisibil
 
 Implem Elastic et Redis
 Utilisation RAM en multiprocess ET multi-thread : quelle look pour une implem de l'orchestrateur en event-loop (beaucoup de edge-cases chez asyncio)
+
+---
+
+les diagnostics peuvent être très bavards ;
+la régulation est laissée aux systèmes consommateurs
+
+---
+
+SchemaRegistry

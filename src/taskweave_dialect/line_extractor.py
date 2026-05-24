@@ -30,7 +30,7 @@ class LineExtractorRunner(Protocol):
     
 
 
-
+@dataclass(kw_only=True)
 class RExtractor:
     extractors : list[Field]
     _runner : LineExtractorRunner = field(init = False)
@@ -68,32 +68,40 @@ class RExtractorRunner:
         for extractor in self.extractors:
             try:
                 value = extractor.parse(line, is_test)
-            except Exception as e:
-                failures.append(extractor.parser._rule.pattern)
+
+                if value is None:
+                    failures.append(
+                        (
+                            extractor.parser._rule.pattern,
+                            DialectErrorKind.NO_MATCH
+                        )
+                    )
+                    continue
+                results[extractor.schema.name] = value
+
+            except DialectError as e:
+                # don't raise here, test mode raises later
+                failures.append(
+                    (
+                        extractor.parser._rule.pattern,
+                        e.kind  # should be cast error
+                    )
+                )
+                
                 self._log_bus.emit_internal(
                     LogEvent(
                         source_id = TaskId(self._source_id),
-                        msg_type = MsgType.MULTIPLE_MATCHES,
-                        msg = f"partial match on dialect: extractor has the following rule : {str(extractor.parser._rule.pattern)}",
+                        msg_type = MsgType.DIALECT_ERROR,
+                        msg = f"{e.kind} - {e.msg}: extractor has the following rule : {str(extractor.parser._rule.pattern)}",
                         timestamp = time()
                     )
                 )
-                if is_test:
-                    traceback.print_exception(e)
 
-            if value is None:
-                continue
-            results[extractor.schema.name] = value
-
-        if len(results) != len(self.extractors):
-            if is_test:
-                traceback.print_exception(
-                    DialectError(
-                        kind = DialectErrorKind.TEST_FAILED,
-                        msg = f"not every fields matched on test case (might be by design). The following failed : {str(failures)}"
-                    )
-                )
-            return None
+        if is_test and len(failures):
+            raise DialectError(
+                kind = DialectErrorKind.TEST_FAILED,
+                msg = f"not every fields matched on test case (might be by design). The following failed : {str(failures)}"
+            ).with_traceback(None) from None
 
         return results
     

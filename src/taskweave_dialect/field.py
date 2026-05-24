@@ -38,7 +38,7 @@ class Field:
         try:
             self.parser.compile()
         except Exception as e:
-            traceback.print_exception(e)
+            raise e.with_traceback(None) from None
         
         if self.group > self.parser._rule.groups:
             exc = DialectError(
@@ -47,8 +47,7 @@ class Field:
                 msg = f"""Field declaration : 'target' has {self.parser._rule.groups} group(s), 
                     but group={self.group} was requested"""
             )
-            traceback.print_exception(exc)
-            raise exc
+            raise exc.with_traceback(None) from None
 
     def parse(self, line : str, is_test : bool = False) -> Any | None:
         try:
@@ -74,7 +73,7 @@ class Field:
                 kind = DialectErrorKind.INCOMPATIBLE_JSON_TYPE,
                 msg = f'log eval incompatible with declared field type in schema : expected {self.schema.type}: {self.get_error(e)}',
                 pattern = self.parser._rule.pattern
-            )
+            ).with_traceback(None) from None
         return ret
 
     def get_error(self, e : Exception):
