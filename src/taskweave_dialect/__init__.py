@@ -9,3 +9,9 @@ from .dialect_error import (
     DialectErrorKind as DialectErrorKind,
     DialectError as DialectError
 )
+from .diagnostic_info import (
+    DiagnosticInfoKind as DiagnosticInfoKind,
+    DiagnosticInfo as DiagnosticInfo
+)
+
+from .diagnostics import Diagnostics as Diagnostics

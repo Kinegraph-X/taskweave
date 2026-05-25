@@ -63,6 +63,8 @@ class Field:
         return ret
     
     def cast(self, value : str) -> Any :
+        if value is None:
+            return None
         caster = DIALECT_CAST[self.schema.type]
         assert callable(caster)
 

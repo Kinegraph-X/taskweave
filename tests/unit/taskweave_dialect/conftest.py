@@ -21,12 +21,14 @@ def on_event(log_events):
 
 @pytest.fixture
 def get_line():
-    lines = cycle([
+    lines = [
         "status = 200 url = http://example.com",
         "status = 404 url = http://example.com/fail"
-    ])
+    ]
+    lines_iter = cycle(lines)
 
-    return lambda: next(lines)
+    yield lambda: next(lines_iter)
+    lines_iter = cycle(lines)
 
 @pytest.fixture
 def log_bus(on_event):

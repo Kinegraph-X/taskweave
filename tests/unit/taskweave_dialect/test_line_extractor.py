@@ -2,7 +2,7 @@ import pytest
 import re
 
 from taskweave_protocol import JsonSchemaType, FieldSchema, MsgType
-from taskweave_dialect import Field, RExtractor, DialectErrorKind, DialectError
+from taskweave_dialect import Field, RExtractor, DialectErrorKind, DialectError, DiagnosticInfoKind
 
 def test_line_extractor_malformed():
     status_schema = FieldSchema("status", JsonSchemaType.INT)
@@ -34,7 +34,6 @@ def test_line_extractor_out_of_bound():
 def test_line_extractor(
         source_id,
         get_line,
-        log_events,
         log_bus
     ):
     status_schema = FieldSchema("status", JsonSchemaType.INT)
@@ -64,7 +63,6 @@ def test_line_extractor(
 def test_line_extractor_group(
         source_id,
         get_line,
-        log_events,
         log_bus
     ):
     status_schema = FieldSchema("status", JsonSchemaType.INT)
@@ -100,6 +98,7 @@ def test_line_extractor_group_over_max(
     with pytest.raises(Exception) as e:
         status_field = Field(schema = aggregate, target = exp, group = 3)
 
+
 def test_line_extractor_propagated_cast_error(
         source_id,
         get_line,
@@ -107,13 +106,11 @@ def test_line_extractor_propagated_cast_error(
         log_bus
     ):
     status_schema = FieldSchema("status", JsonSchemaType.BOOL)
-    url_schema = FieldSchema("url", JsonSchemaType.STRING)
 
     status_field = Field(schema = status_schema, target = r"status\s*=\s*(\w+)")
-    url_field = Field(schema = url_schema, target = r"url\s*=\s*([\w/:\.]+)")
 
     fetch_extractor = RExtractor(
-        extractors = [status_field, url_field]
+        extractors = [status_field]
     )
 
     fetch_extractor.make_runner(
@@ -130,8 +127,76 @@ def test_line_extractor_propagated_cast_error(
 """
 TEST MODE
 """
-# def test_line_extractor_too_few_matches():
-#     status_schema = FieldSchema("status", JsonSchemaType.INT)
 
-#     with pytest.raises(Exception) as e:
-#         status_field = Field(schema = status_schema, target = r"status") # no capturing group
+def test_line_extractor_did_not_match(
+        source_id,
+        get_line,
+        log_events,
+        log_bus
+    ):
+    status_schema = FieldSchema("status", JsonSchemaType.INT)
+    url_schema = FieldSchema("url", JsonSchemaType.STRING)
+
+    status_pattern = r"status\s*=\s*(\w+)"
+    url_pattern = r"url\s*=\s*([\w/:\.]+)"
+
+    status_field = Field(schema = status_schema, target = status_pattern)
+    url_field = Field(schema = url_schema, target = url_pattern)
+
+    fetch_extractor = RExtractor(
+        extractors = [status_field, url_field]
+    )
+
+    fetch_extractor.make_runner(
+        log_bus = log_bus,
+        source_id = source_id
+    )
+
+    messages = fetch_extractor.return_test("status = 200")
+    collected_messages : list[tuple[DiagnosticInfoKind, str]] = []
+
+    for m in messages:
+        if m.kind == DiagnosticInfoKind.INFO:
+            collected_messages.append((m.kind, m.msg))
+
+    assert len(collected_messages) == 1
+    assert collected_messages[0][0] == DiagnosticInfoKind.INFO
+    assert "Extractor 'url' did not match" in collected_messages[0][1]
+
+
+def test_line_extractor_too_few_matches(
+        source_id,
+        get_line,
+        log_events,
+        log_bus
+    ):
+    status_schema = FieldSchema("status", JsonSchemaType.INT)
+    url_schema = FieldSchema("url", JsonSchemaType.STRING)
+
+    status_pattern = r"status\s*=\s*(\w+)"
+    url_pattern = r"url\s*=\s*([\w/:\.]+)"
+
+    status_field = Field(schema = status_schema, target = status_pattern)
+    url_field = Field(schema = url_schema, target = url_pattern)
+
+    fetch_extractor = RExtractor(
+        extractors = [status_field, url_field]
+    )
+
+    fetch_extractor.make_runner(
+        log_bus = log_bus,
+        source_id = source_id
+    )
+
+    messages = fetch_extractor.return_test("status = 200")
+    collected_messages : list[tuple[DiagnosticInfoKind, str]] = []
+
+    for m in messages:
+        if m.kind == DiagnosticInfoKind.ERROR:
+            collected_messages.append((m.kind, m.msg))
+    
+    assert len(collected_messages) == 1
+    assert collected_messages[0][0] == DiagnosticInfoKind.ERROR
+    assert "Too few extractors matched" in collected_messages[0][1]
+
+

@@ -3,7 +3,7 @@ from typing import Pattern
 from enum import Enum
 from dataclasses import dataclass
 
-class DialectErrorKind(Enum):
+class DialectErrorKind(str, Enum):
     UNTERMINATED_CHARACTER_CLASS = "unterminated character class in log parser declaration"
     QUANTIFIER_WITHOUT_TARGET = "quantifier without target in log parser declaration"
     MULTIPLE_QUANTIFIERS = "multiple quantifiers in log parser declaration"
@@ -50,6 +50,7 @@ class DialectError(Exception):
     pattern : Pattern | None = None
     pos : int | None = None
     msg : str
+    failures : list[tuple[str, Pattern, DialectErrorKind]] | None = None
 
     def __str__(self):
         data = {

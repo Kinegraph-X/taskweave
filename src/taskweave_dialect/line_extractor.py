@@ -1,10 +1,11 @@
 from typing import Protocol, Any, Pattern, Callable, runtime_checkable
 from dataclasses import dataclass, field
 from time import time
-import ast, re, traceback
+import ast, re, traceback, json
 
 from .field import Field
 from .dialect_error import DialectErrorKind, DialectError
+from .diagnostics import Diagnostics
 
 from taskweave.buses import MiniBus
 from taskweave.utils import TaskId
@@ -51,8 +52,23 @@ class RExtractor:
     def schema(self) -> JsonSchema:
         return JsonSchema(fields=[e.schema for e in self.extractors])
 
-    def test(self, line : str, excepted : dict | None):
-        self._runner.parse(line = line, is_test = True)
+    def test(self, line : str, expected : dict | None = None):
+        diagnostics = Diagnostics(extractors = self.extractors)
+        print(
+            json.dumps(
+                [info.to_json() for info in self._test(line, expected, diagnostics)],
+                indent = 4
+            )
+        )
+
+    def return_test(self, line : str, expected : dict | None = None):
+        diagnostics = Diagnostics(extractors = self.extractors)
+        return self._test(line, expected, diagnostics)
+
+    def _test(self, line : str, expected : dict | None, diagnostics : Diagnostics):
+        return diagnostics.analyze(
+            lambda: self._runner.parse(line = line, is_test = True)
+        )
 
 
 @dataclass(kw_only=True)
@@ -63,15 +79,15 @@ class RExtractorRunner:
     
     def parse(self, line: str, is_test : bool = False) -> dict[str, Any] | None:
         results: dict[str, Any] = {}
-        failures : list = []
+        failures : list[tuple[str, Pattern, DialectErrorKind]] = []
 
         for extractor in self.extractors:
             try:
                 value = extractor.parse(line, is_test)
-
                 if value is None:
                     failures.append(
                         (
+                            extractor.schema.name,
                             extractor.parser._rule.pattern,
                             DialectErrorKind.NO_MATCH
                         )
@@ -80,9 +96,10 @@ class RExtractorRunner:
                 results[extractor.schema.name] = value
 
             except DialectError as e:
-                # don't raise here, test mode raises later
+                # don't raise here, test mode prints later
                 failures.append(
                     (
+                        extractor.schema.name,
                         extractor.parser._rule.pattern,
                         e.kind  # should be cast error
                     )
@@ -100,7 +117,8 @@ class RExtractorRunner:
         if is_test and len(failures):
             raise DialectError(
                 kind = DialectErrorKind.TEST_FAILED,
-                msg = f"not every fields matched on test case (might be by design). The following failed : {str(failures)}"
+                msg = f"Test failed (might be by design). Read the report",
+                failures = failures
             ).with_traceback(None) from None
 
         return results
