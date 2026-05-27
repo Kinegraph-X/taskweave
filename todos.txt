@@ -111,3 +111,19 @@ la régulation est laissée aux systèmes consommateurs
 ---
 
 SchemaRegistry
+
+---
+
+documenter les stratégies d’agrégation comme des :
+
+“modèles d’interprétation”
+
+Par exemple :
+
+Modèle	Principe	Réaction
+fail-open	préserver le throughput	ignore temporairement
+fail-fast	préserver cohérence	stop orchestrateur
+forensic-first	préserver causalité	persiste tout
+degradation-aware	préserver stabilité	throttling
+quorum-based	préserver consensus métier	remplace worker
+confidence-based	préserver fiabilité observationnelle	downgrade décisions

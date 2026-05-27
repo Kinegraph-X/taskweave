@@ -3,6 +3,9 @@
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.mypy]
+exclude = ["regex_inspector"]
+
 [project]
 name = "taskweave"
 version = "0.1.0"

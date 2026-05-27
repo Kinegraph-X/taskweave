@@ -14,7 +14,9 @@ class DialectErrorKind(str, Enum):
     INVALID_LOOK_BEHIND = "invalid look-behind in log parser declaration"
 
     MISSING_GROUP = "missing group in log parser declaration"
-    OUT_OF_BOUND_GROUP = "out of bound group"
+    OUT_OF_BOUND_GROUP = "out of bound group in log parser declaration"
+    NAMED_GROUP_FORBIDDEN = "named groups are forbidden in log parser declaration"
+    UNION_FORBIDDEN = "unions are considered bad practice"
     INCOMPATIBLE_JSON_TYPE = "incompatible json type between schema and actual output"
 
     PARTIAL_MATCH = "partial match on log parser"
@@ -57,7 +59,8 @@ class DialectError(Exception):
             "kind": self.kind,
             "pattern": self.pattern,
             "pos": self.pos,
-            "msg" : self.msg
+            "msg" : self.msg,
+            "failures" : self.failures
         }
 
         return (

@@ -4,6 +4,10 @@ import re
 from taskweave_protocol import JsonSchemaType, FieldSchema, MsgType
 from taskweave_dialect import Field, RExtractor, DialectErrorKind, DialectError, DiagnosticInfoKind
 
+"""
+VALIDATE RULE
+"""
+
 def test_line_extractor_malformed():
     status_schema = FieldSchema("status", JsonSchemaType.INT)
 
@@ -29,6 +33,22 @@ def test_line_extractor_out_of_bound():
         status_field = Field(schema = status_schema, target = r"status(.+)", group = 2) # group > capturing groups
         
     assert e.value.kind == DialectErrorKind.OUT_OF_BOUND_GROUP
+
+def test_line_extractor_named_group():
+    status_schema = FieldSchema("status", JsonSchemaType.INT)
+
+    with pytest.raises(DialectError) as e:
+        status_field = Field(schema = status_schema, target = r"(?P<key>\w+)=(.+)", group = 2) # named group bad practice
+        
+    assert e.value.kind == DialectErrorKind.NAMED_GROUP_FORBIDDEN
+
+def test_line_extractor_union():
+    status_schema = FieldSchema("status", JsonSchemaType.INT)
+
+    with pytest.raises(DialectError) as e:
+        status_field = Field(schema = status_schema, target = r"status(.+)|url(.+)", group = 2) # union bad practice
+        
+    assert e.value.kind == DialectErrorKind.UNION_FORBIDDEN
 
 
 def test_line_extractor(
@@ -130,8 +150,6 @@ TEST MODE
 
 def test_line_extractor_did_not_match(
         source_id,
-        get_line,
-        log_events,
         log_bus
     ):
     status_schema = FieldSchema("status", JsonSchemaType.INT)
@@ -166,8 +184,6 @@ def test_line_extractor_did_not_match(
 
 def test_line_extractor_too_few_matches(
         source_id,
-        get_line,
-        log_events,
         log_bus
     ):
     status_schema = FieldSchema("status", JsonSchemaType.INT)
@@ -190,13 +206,77 @@ def test_line_extractor_too_few_matches(
 
     messages = fetch_extractor.return_test("status = 200")
     collected_messages : list[tuple[DiagnosticInfoKind, str]] = []
-
+    
     for m in messages:
-        if m.kind == DiagnosticInfoKind.ERROR:
+        if m.kind == DiagnosticInfoKind.WARNING:
             collected_messages.append((m.kind, m.msg))
     
     assert len(collected_messages) == 1
-    assert collected_messages[0][0] == DiagnosticInfoKind.ERROR
+    assert collected_messages[0][0] == DiagnosticInfoKind.WARNING
     assert "Too few extractors matched" in collected_messages[0][1]
 
 
+def test_line_extractor_multi_group_matched(
+        source_id,
+        log_bus,
+        get_line
+    ):
+    status_schema = FieldSchema("status", JsonSchemaType.INT)
+
+    exp = r"status\s*=\s*(\w+)\s*url\s*=\s*([\w/:]+)"
+
+    status_field = Field(schema = status_schema, target = exp, group = 1)
+
+    fetch_extractor = RExtractor(
+        extractors = [status_field]
+    )
+
+    fetch_extractor.make_runner(
+        log_bus = log_bus,
+        source_id = source_id
+    )
+
+    messages = fetch_extractor.return_test(get_line())
+    collected_messages : list[tuple[DiagnosticInfoKind, str]] = []
+    
+    for m in messages:
+        if m.kind == DiagnosticInfoKind.INFO:
+            collected_messages.append((m.kind, m.msg))
+    
+    assert len(collected_messages) == 1
+    assert collected_messages[0][0] == DiagnosticInfoKind.INFO
+    assert "Multi group extractor matched" in collected_messages[0][1]
+
+
+def test_line_extractor_multi_group_not_matched(
+        source_id,
+        log_bus,
+        get_line
+    ):
+    status_schema = FieldSchema("status", JsonSchemaType.INT)
+
+    exp = r"status\s*=\s*(\w+)\s*url\s*=\s*([\w/:]+)"
+
+    status_field = Field(schema = status_schema, target = exp, group = 1)
+
+    fetch_extractor = RExtractor(
+        extractors = [status_field]
+    )
+
+    fetch_extractor.make_runner(
+        log_bus = log_bus,
+        source_id = source_id
+    )
+
+    messages = fetch_extractor.return_test("status = 200")
+    collected_messages : list[tuple[DiagnosticInfoKind, str]] = []
+    
+    for m in messages:
+        if m.kind in (DiagnosticInfoKind.ERROR, DiagnosticInfoKind.WARNING):
+            collected_messages.append((m.kind, m.msg))
+    
+    assert len(collected_messages) == 2
+    assert collected_messages[0][0] == DiagnosticInfoKind.WARNING
+    assert "Capturing group(s)" in collected_messages[0][1] # _group_is_not_consumed
+    assert collected_messages[1][0] == DiagnosticInfoKind.ERROR
+    assert "Multi group extractor didn't match" in collected_messages[1][1]

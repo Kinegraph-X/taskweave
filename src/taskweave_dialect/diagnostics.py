@@ -35,6 +35,8 @@ class Diagnostics:
         self._extractor_did_not_match_or_failed(results, error)
         self._multiple_extractors_matched(results, error)
         self._too_few_matches(results, error)
+        self._multi_group_matched(results, error)
+        self._multi_group_not_matched(results, error)
 
         return self.messages
 
@@ -80,13 +82,18 @@ class Diagnostics:
         if error is None or error.failures is None:
             return
         
+        # reserve this diagnostics to single group targets
+        for extractor in self.extractors:
+            if extractor.parser._rule.groups > 1:
+                return
+        
         for failure in error.failures:
             if failure[2] == DialectErrorKind.NO_MATCH:
                 self.messages.append(
                     DiagnosticInfo(
                         kind = DiagnosticInfoKind.INFO,
                         msg = f"""
-                            Extractor '{failure[0]}' did not match
+                            Extractor '{failure[0]}' did not match : it might be by design
                             """
                     )
                 )
@@ -110,20 +117,54 @@ class Diagnostics:
                 kind = DiagnosticInfoKind.INFO,
                 msg = f"""
                     Multiple extractors matched on one line 
-                    {[ext.schema.name for ext in self.extractors if ext.schema.name in [r.name for r in results]]}
+                    {[ext.schema.name for ext in self.extractors if ext.schema.name in results.keys()]}
                     """
             )
         )
         
     def _too_few_matches(self, results : dict, error : DialectError | None):
-        if len(results) < len(self.extractors):
+        # reserve this diagnostics to "actually matched"
+        # but "partially matched" doesn't return results
+        # -> check failures
+        if error is None or error.failures is None:
+            return
+
+        if len(self.extractors) > 1:
             self.messages.append(
-            DiagnosticInfo(
-                kind = DiagnosticInfoKind.ERROR,
-                msg = f"""
-                    Too few extractors matched on one line 
-                    {[r.name for r in results]} matched against extractors : {[ext.schema.name for ext in self.extractors]}
-                    """
+                DiagnosticInfo(
+                    kind = DiagnosticInfoKind.WARNING,
+                    msg = f"""
+                        Too few extractors matched on one line (might be by design)
+                        failurees are {error.failures}
+                        """
+                )
             )
-        )
+
+    def _multi_group_matched(self, results : dict, error : DialectError | None):
+        for extractor in self.extractors:
+            if extractor.parser._rule.groups > 1:
+                if len(results) > 0:
+                    self.messages.append(
+                        DiagnosticInfo(
+                            kind = DiagnosticInfoKind.INFO,
+                            msg = f"""
+                                Multi group extractor matched on one line
+                                {results.keys()} matched against extractors : {extractor.schema.name}
+                                """
+                        )
+                    )
+
+    def _multi_group_not_matched(self, results : dict, error : DialectError | None):
+        for extractor in self.extractors:
+            if extractor.parser._rule.groups > 1:
+                if len(results) == 0:
+                    self.messages.append(
+                        DiagnosticInfo(
+                            kind = DiagnosticInfoKind.ERROR,
+                            msg = f"""
+                                Multi group extractor didn't match on one line
+                                {results.keys()} matched against extractors : {extractor.schema.name}
+                                """
+                        )
+                    )
         

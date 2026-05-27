@@ -19,7 +19,6 @@ class Field:
         schema: FieldSchema,
         target : str | Pattern,
         group : int = 1,
-        category: OutputType = OutputType.PROGRESS,
         parser : DialectParser = field(init = False)
     ):
         if not target:
@@ -29,25 +28,17 @@ class Field:
 
         self.schema = schema
         self.group = group
-        self.category = category
+        
         if callable(parser):
-            parser(target = target)
+            parser(target = target, group = group)
         else:
-            self.parser = FieldParser(target = target)
+            self.parser = FieldParser(target = target, group = group)
 
         try:
             self.parser.compile()
         except Exception as e:
             raise e.with_traceback(None) from None
         
-        if self.group > self.parser._rule.groups:
-            exc = DialectError(
-                kind = DialectErrorKind.OUT_OF_BOUND_GROUP,
-                pattern = self.parser._rule.pattern,
-                msg = f"""Field declaration : 'target' has {self.parser._rule.groups} group(s), 
-                    but group={self.group} was requested"""
-            )
-            raise exc.with_traceback(None) from None
 
     def parse(self, line : str, is_test : bool = False) -> Any | None:
         try:
