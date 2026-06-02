@@ -1,6 +1,6 @@
 import traceback
 from dataclasses import dataclass, field
-from threading import Thread, Event
+from threading import Thread, Event, Lock
 from subprocess import Popen, PIPE, STDOUT
 from typing import Callable
 from queue import Queue
@@ -12,8 +12,10 @@ from .final_status import FinalStatus
 from .cancel_intent import CancelIntent
 from .completed_task import CompletedTask
 
+from taskweave.messages import LogProducer, LogEventProducer
+
 from taskweave.utils import TaskId
-from taskweave_protocol import LogEvent, LogProducer, LogEventProducer, MsgType, SourceType
+from taskweave_protocol import LogEvent, MsgType, SourceType
 from taskweave.buses import MiniBus, Heartbeat, HeartbeatConfig
 
 
@@ -27,7 +29,7 @@ class SubProcessManager:
     log_bus : MiniBus
     source_id: str
     producer: LogProducer = field(default_factory=LogEventProducer)
-    _completion_queue: Queue = field(default_factory=Queue)
+    # _completion_queue: Queue = field(default_factory=Queue)
     _process: Popen | None = field(init=False, default=None)
     _stdout_thread: Thread | None = field(init=False, default=None)
     _completion_thread: Thread | None = field(init=False, default=None)
@@ -39,6 +41,7 @@ class SubProcessManager:
         *,
         name: str,
         args_list: list[str],
+        on_start: Callable,
         on_success: Callable | None = None,
         on_failure: Callable | None = None,
         on_cancel: Callable | None = None,
@@ -49,14 +52,15 @@ class SubProcessManager:
             return
         self.source_id = name
         self.on_cancel = on_cancel
+
         self._heartbeat = Heartbeat(
-                task_id = self.source_id,
+                source_id = self.source_id,
                 log_bus = self.log_bus,
                 config = heartbeat_cfg
             )
         
         # name discarded — single process, this mimics Pool[WorkItem], so no WorkItem.name
-        self._start(args_list, on_success, on_failure)
+        self._start(args_list, on_start, on_success, on_failure)
         self._init.set()
 
     def stop_worker(self, name: str) -> None:   # name discarded
@@ -64,6 +68,7 @@ class SubProcessManager:
             self._process.terminate()
         if self.on_cancel:
             self._execute_callback(self.source_id, self.on_cancel, FinalStatus.STOPPED)
+        self._done.set()
 
     def remove_worker(self, name: str) -> None:
         pass  # noop
@@ -71,10 +76,10 @@ class SubProcessManager:
     def _start(
         self,
         args_list: list[str],
+        on_start: Callable,
         on_success: Callable | None = None,
         on_failure: Callable | None = None,
     ) -> None:
-        self._done.clear()
         self._process = Popen(args_list, stdout=PIPE, stderr=STDOUT, text=True)
         self._stdout_thread = Thread(
             target=self._poll_stdout,
@@ -86,6 +91,8 @@ class SubProcessManager:
             args=(on_success, on_failure),
             daemon=True,
         )
+
+        on_start()
         self._completion_thread.start()
 
     def _poll_stdout(
@@ -99,10 +106,10 @@ class SubProcessManager:
                 source_id=self.source_id,
                 line=line.rstrip()
             )
-            self._heartbeat.beat(event)
+            self._heartbeat.beat(event) # log_bus is called by heartbeat
 
         self._process.wait()
-        self._completion_queue.put(CompletedTask(name=self.source_id))
+        # self._completion_queue.put(CompletedTask(name=self.source_id))
 
     # Handles the need for global synchronization
     # on state-snapshots in the main thread
@@ -112,28 +119,45 @@ class SubProcessManager:
         on_failure: Callable | None = None,
     ):
         assert self._process is not None
-        while True:
-            result = self._completion_queue.get()
-            name = result.name
-            if not name == self.source_id:
-                self._completion_queue.put(result)
-                sleep(.01)
-                continue
+        self._process.wait()
 
-            if isinstance(CancelIntent, result):
-                self.stop_worker(name)
-                break
-            elif isinstance(CompletedTask, result):
-                if self._process.returncode == 0 and on_success:
-                    self._execute_callback(
-                        self.source_id, on_success, FinalStatus.SUCCESS)
-                elif on_failure:
-                    self._execute_callback(
-                        self.source_id, on_failure, FinalStatus.FAILURE)
-                break
-            self._done.set()
+        if self._process.returncode == 0 and on_success:
+            self._execute_callback(
+                self.source_id, on_success, FinalStatus.SUCCESS)
+        elif on_failure:
+            self._execute_callback(
+                self.source_id, on_failure, FinalStatus.FAILURE)
+            
+        self._done.set()
+            
+        # while True:
+        #     result = self._completion_queue.get()
+        #     name = result.name
+        #     if not name == self.source_id:
+        #         self._completion_queue.put(result)
+        #         sleep(.01)
+        #         continue
+            
+            # this type doesn't use this mecanism
+            # if isinstance(CancelIntent, result):
+            #     self.stop_worker(name)
+            #     break
+            # el
+            # if isinstance(CompletedTask, result):
+            #     if self._process.returncode == 0 and on_success:
+            #         self._execute_callback(
+            #             self.source_id, on_success, FinalStatus.SUCCESS)
+            #     elif on_failure:
+            #         self._execute_callback(
+            #             self.source_id, on_failure, FinalStatus.FAILURE)
+            #     break
+            # self._done.set()
 
     def _execute_callback(self, name: str, cb: Callable, final_status: FinalStatus):
+        # enforce no race condition between FAILED/CANCELED or SUCCESS/CANCELED
+        if self._done.is_set():
+            return
+        
         outcome: TaskOutcome = TaskOutcome(
             name=name,
             status=final_status,
