@@ -27,7 +27,7 @@ class SessionGateway:
         self._control.execute(parsed.plan)
 
     def get_plan(self):
-        return self._registry.get_plan(
+        return self._registry.get_json_plan(
             self._control.plan,
             self._control.pool_provider.execution_pools
         )

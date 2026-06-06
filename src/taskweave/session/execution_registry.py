@@ -1,28 +1,31 @@
 from typing import Any
+import json
 from dataclasses import dataclass
 
-from taskweave.tasks import PoolStrategy, Task, SynchronousStrategy
+from taskweave.buses import ObservabilityPolicy
+from taskweave.tasks import PoolStrategy, Task, SynchronousStrategy, CancelPolicy
 from taskweave.pipeline import ExecutionPlan, Pipeline
 from taskweave.workers import WorkerPool
+from taskweave.utils import jsonSerialize, parse_enum
 
 class ParseError(Exception):...
 
 @dataclass(kw_only = True)
 class ParsedPlan:
-    plan: ExecutionPlan             # pipelines avec Task.strategy déjà affectées
-    pools: dict[str, PoolStrategy]              # ref gardée pour SessionGateway
-
+    plan: ExecutionPlan                         # pipelines with Task.strategy already assignated
+    pools: dict[str, PoolStrategy]              # ref kept for SessionGateway
+    cancel_policy: CancelPolicy | None          # None is absent from payload
+    observability_policy: ObservabilityPolicy | None  # idem
 
 
 @dataclass(kw_only = True)
 class ExecutionRegistry:
-    # TODO : ensure cancel_policy & observability_policy are enums in plan
-    @staticmethod
+    
     def parse_plan(self, payload: dict) -> ParsedPlan | ParseError:
         """
-        Reconstruit un ExecutionPlan typé depuis un payload sérialisé.
-        Valide que chaque task.pool référence un pool déclaré.
-        pools est consommé ici uniquement — pas propagé dans ExecutionPlan.
+        Reconstructs a typed ExecutionPlan from a serialized payload.
+        Validates that each task.pool references a declared pool.
+        "pools" is consummed only here : not propagated in ExecutionPlan.
         """
         # 1. parse les pools
         pools = self._parse_pools(payload.get("pools", []))
@@ -32,12 +35,22 @@ class ExecutionRegistry:
         if isinstance(pipelines, ParseError):
             return pipelines
         
+        cancel_policy = parse_enum(
+            CancelPolicy,
+            payload.get("cancel_policy")
+        )
+        observability_policy = parse_enum(
+            ObservabilityPolicy,
+            payload.get("observability_policy")
+        )
+ 
         return ParsedPlan(
             plan = ExecutionPlan(pipelines=pipelines),
-            pools = pools
+            pools = pools,
+            cancel_policy = cancel_policy,
+            observability_policy = observability_policy,
         )
     
-    @staticmethod
     def _parse_pools(self, payload) -> dict[str, PoolStrategy]:
         # 1. reconstruit les PoolStrategy depuis le payload
         pools: dict[str, PoolStrategy] = {
@@ -49,8 +62,11 @@ class ExecutionRegistry:
         }
         return pools
 
-    @staticmethod
-    def _parse_pipelines(self, pipelines : list[Any], pools : dict[str, PoolStrategy]):
+    def _parse_pipelines(
+        self,
+        pipelines : list[Any],
+        pools : dict[str, PoolStrategy]
+    ):
         # 2. reconstruit les pipelines
         pipelines = []
         for pipeline_payload in pipelines:
@@ -82,17 +98,24 @@ class ExecutionRegistry:
         pools : dict[str, WorkerPool]
     ) -> dict:
         """
-        Reconstruit le plan sérialisable depuis l'état runtime.
-        pools est reconstruit depuis PoolProvider — pas stocké dans ExecutionPlan.
+        Constructs a serialized plan from the runtime plan.
+        "pools" is constructed from PoolProvider.
         """
-        pools_list = [
+        serialized = jsonSerialize(plan)
+        
+        serialized["pools"] = [
             {
-            "name": name,
-            "max_parallel": manager.max_count
+                "name": name,
+                "max_parallel": runner.manager.max_count
             }
-            for name, manager in pools.items()
+            for name, runner in pools.items()
         ]
-        return {
-            **self._stored_plan,  # pipelines, cancel_policy, etc.
-            "pools": pools        # reconstruit dynamiquement
-        }
+ 
+        return serialized
+    
+    def get_json_plan(
+        self,
+        plan : ExecutionPlan,
+        pools : dict[str, WorkerPool]
+    ) -> str:
+        return json.dumps(self.get_plan(plan, pools), indent=4)
