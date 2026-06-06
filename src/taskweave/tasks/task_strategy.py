@@ -21,6 +21,7 @@ class ExecutionStrategy(Protocol):
 @dataclass(kw_only = True)
 class PoolStrategy:
     pool_name : str
+    max_parallel : int
     def _get_runner(
             self,
             context : PoolExecutionContext
@@ -35,8 +36,7 @@ class SynchronousStrategy:
         ) -> TaskRunner:
         manager = SubProcessManager(
             source_id = str(context.source_id),
-            log_bus = context.event_bus,
-            _completion_queue = context.global_completion_queue
+            log_bus = context.event_bus
         )
         return SubprocessTaskRunner(manager = manager)
 
@@ -49,4 +49,5 @@ class ExternalStrategy:
     def _get_runner(
             self,
             context : ExecutionContext
-        ) -> TaskRunner:... # -> ExternalRunner
+        ) -> None:
+        return None # -> ExternalRunner

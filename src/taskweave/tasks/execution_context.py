@@ -39,5 +39,5 @@ class SynchronousExecutionContext(
 class ExecutionPool:
     source_id : TaskId
     pools : dict[str, TaskRunner]
-    global_completion_queue : Queue
+    # global_completion_queue : Queue
     event_bus : MiniBus

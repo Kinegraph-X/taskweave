@@ -3,7 +3,7 @@ from enum import Enum
 class PipelineState(Enum):
     PENDING = "pending"
     RUNNING = "running"
-    STOPPED = "stopped"
+    CANCELED = "canceled"
     STOPPING = "stopping"
     FAILED =  "failed"
     SUCCESS = "success"

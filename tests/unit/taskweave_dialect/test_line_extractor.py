@@ -16,7 +16,6 @@ def test_line_extractor_malformed():
     
     assert e.value.kind == DialectErrorKind.UNTERMINATED_GROUP
 
-
 def test_line_extractor_no_group():
     status_schema = FieldSchema("status", JsonSchemaType.INT)
 
@@ -24,7 +23,6 @@ def test_line_extractor_no_group():
         status_field = Field(schema = status_schema, target = r"status") # no capturing group
         
     assert e.value.kind == DialectErrorKind.MISSING_GROUP
-
 
 def test_line_extractor_out_of_bound():
     status_schema = FieldSchema("status", JsonSchemaType.INT)

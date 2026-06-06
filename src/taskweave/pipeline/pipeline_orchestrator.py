@@ -1,62 +1,122 @@
 from typing import List, Callable
-import threading, subprocess
-from time import time
 
 from .pipeline import Pipeline
+from .runtime_pipeline import RuntimePipeline
+from .execution_plan import ExecutionPlan
+from .observability_context import ObservabilityContext
 
-from taskweave.states import PipelineState, TaskState
-from taskweave.tasks import Task, PipelineTask, CancelPolicy, ExternalStrategy
+from taskweave.states import PipelineState, TaskState, FinalStatus
+from taskweave.tasks import Task, PipelineTask, CancelPolicy, ExternalStrategy, PoolProvider
 from taskweave.utils import TaskId
-from taskweave.workers import TaskOutcome, FinalStatus
+from taskweave.workers import TaskOutcome
+
 
 class PipelineOrchestrator:
     def __init__(
-            self,
-            on_pipeline_failure : Callable[[str, str], None],
-            cancel_policy=CancelPolicy.CANCEL_PENDING_ONLY
-            ):
-        self._on_pipeline_failure = on_pipeline_failure
-        self.pipelines : List[Pipeline] = []
+        self,
+        obs : ObservabilityContext,
+        pool_provider : PoolProvider,
+        cancel_policy : CancelPolicy = CancelPolicy.CANCEL_PENDING_ONLY
+    ):
+        self.obs = obs
+        self.pool_provider = pool_provider
         self.cancel_policy = cancel_policy
-        self._early_exit = threading.Event()
-        self._sink : Callable | None = None
 
-    def add_pipeline(self, pipeline : Pipeline) -> TaskId:
-        self.pipelines.append(pipeline)
+        self.pipelines : dict[TaskId, RuntimePipeline] = {}
+
+
+    """ FROM PLAN """
+
+    def execute_plan(
+        self,
+        session_id : TaskId,
+        plan : ExecutionPlan
+    ):
+        self.cancel_policy = plan.cancel_policy
+        for pipeline in plan.pipelines:
+            self._hydrate_pipeline(
+                session_id = session_id,
+                pipeline = pipeline
+            )
+
+    def _hydrate_pipeline(
+        self,
+        session_id : TaskId,
+        pipeline : Pipeline
+    ):
+        on_transition = lambda old, new, event: self.obs.emit(event)
+        p = RuntimePipeline(
+            id = pipeline.id,
+            session_id = session_id,
+            on_change = on_transition
+        )
+
+        for task in pipeline.tasks:
+            task.name = self.obs.log_store.register(
+                session_id = session_id,
+                source_id = task.name
+            )
+            on_cleanup = self.obs.handle_task_persistence(task)
+            t = p.add_task(
+                task_spec = task,
+                on_change = on_transition,
+                on_cleanup = on_cleanup
+            )
+            self.pool_provider.define_runner(t)
+
+        self.pipelines[pipeline.id] = p
+
+
+    """ RESTARTS """
+
+    def add_pipeline(
+        self,
+        session_id : TaskId,
+        pipeline : Pipeline
+    ) -> TaskId:
+        self._hydrate_pipeline(
+            session_id = session_id,
+            pipeline = pipeline
+        )
         return pipeline.id
     
     def add_task(self, pipeline_id : TaskId, task : Task, on_change : Callable, on_cleanup : Callable[[], None] | None):
-        pipeline = next((p for p in self.pipelines if p.id == pipeline_id), None)
-        if not pipeline:
-            raise ValueError(f'add_task() on non-existing pipeline. pipeline_id is {pipeline_id}')
+        pipeline = self.pipelines[pipeline_id]
         pipeline.add_task(task, on_change, on_cleanup)
 
+
+    """ COMMANDS """
+
     def start_pipeline(self, pipeline_id : TaskId):
-        pipeline = next((p for p in self.pipelines if p.id == pipeline_id), None)
-        if not pipeline:
-            raise ValueError(f'start_pipeline() on non-existing pipeline. pipeline_id is {pipeline_id}')
-        pipeline.started_at = time()
+        pipeline = self.pipelines[pipeline_id]
         self._next_task(pipeline, 0)
         pipeline.cycle.transition(PipelineState.RUNNING)
 
     def start_all_pipelines(self):
         for pipeline in self.pipelines:
-            self._next_task(pipeline, 0)
-            pipeline.cycle.transition(PipelineState.RUNNING)
+            self.start_pipeline(pipeline.id)
 
     def stop_pipeline(self, pipeline_id : TaskId):
-        pipeline = next((p for p in self.pipelines if p.id == pipeline_id), None)
-        if not pipeline:
-            raise ValueError(f'start_pipeline() on non-existing pipeline. pipeline_id is {pipeline_id}')
-        
+        pipeline = self.pipelines[pipeline_id]
         self._cleanup_pipeline(pipeline)
 
-    def _run_task(self, pipeline : Pipeline, task : PipelineTask, idx : int):
-        task.started_at = time()
+    def stop_all_pipelines(self):
+        for pipeline in self.pipelines:
+            self._cleanup_pipeline(pipeline)
+
+    def stop_task(self, id : TaskId, pipeline : RuntimePipeline):
+        pipeline_task = next(iter([t for t in pipeline.tasks if t.name == id]))
+        pipeline_task._runner.cleanup(id)
+
+
+    """ RUN PHASE """
+
+    def _run_task(self, pipeline : RuntimePipeline, task : PipelineTask, idx : int):
         task._runner.run(
             task_name = task.name,
             task_cmd = task.cmd,
             log_producer = task.producer,
+            on_start = lambda: self._on_task_start(pipeline, idx),
             on_success = lambda: self._on_task_success(pipeline, idx),
             on_failure = lambda: self._on_task_failure(pipeline, idx),
             on_cancel = lambda: task.on_cancel() if task.on_cancel else None
@@ -68,7 +128,6 @@ class PipelineOrchestrator:
             return
 
         task = pipeline.tasks[idx]
-        task.cycle.transition(TaskState.RUNNING)
 
         self._run_task(pipeline, task, idx)
 
@@ -76,15 +135,18 @@ class PipelineOrchestrator:
         if isinstance(task._runner, ExternalStrategy):
             self._next_task(pipeline, idx + 1)
 
-    def _on_task_success(self, pipeline: Pipeline, idx: int):
+
+    """ CALLBACKS """
+
+    def _on_task_start(self, pipeline: RuntimePipeline, idx: int):
+        task = pipeline.tasks[idx]
+        task.cycle.transition(TaskState.RUNNING)
+
+    def _on_task_success(self, pipeline: RuntimePipeline, idx: int):
         next_idx = idx + 1
         task = pipeline.tasks[idx]
         task._runner.cleanup(task.name)
-        
-        # first check if early_exit has bee trigger meanwhile
-        if self._early_exit.is_set():
-            return
-        
+
         if task.on_finally:
             task.on_finally(
                 TaskOutcome(
@@ -96,18 +158,17 @@ class PipelineOrchestrator:
 
         task.cycle.transition(TaskState.SUCCESS)
 
-        if callable(task.early_exit_on_success):
-            if task.early_exit_on_success():
-                self.early_exit()
-                return
-
         if next_idx >= len(pipeline.tasks):
             pipeline.cycle.transition(PipelineState.SUCCESS)
+            return
+        elif pipeline.tasks[next_idx].cycle.state == TaskState.CANCELED:
+            # case of early exit with graceful stop
+            pipeline.cycle.transition(PipelineState.CANCELED)
             return
 
         self._next_task(pipeline, next_idx)
 
-    def _on_task_failure(self, pipeline: Pipeline, idx: int):
+    def _on_task_failure(self, pipeline: RuntimePipeline, idx: int):
         task = pipeline.tasks[idx]
         task.cycle.transition(TaskState.FAILED)
         pipeline.cycle.transition(PipelineState.FAILED)
@@ -121,47 +182,43 @@ class PipelineOrchestrator:
                 )
             )
 
-        self._on_pipeline_failure(str(pipeline.id), f'task {task.name} failed')
-
         task._runner.cleanup(task.name)
+
         for task in pipeline.tasks[idx + 1:]:
-            if task.cancellable:
-                task.cycle.transition(TaskState.CANCELED)
-                return
+            task.cycle.transition(TaskState.CANCELED)
 
-    def early_exit(self):
-        self._early_exit.set()
-        for pipeline in self.pipelines:
-            self._cleanup_pipeline(pipeline, is_early_exit=True)
-            pipeline.early_exit = True
 
-    def graceful_stop(self):
-        for pipeline in self.pipelines:
-            self._cleanup_pipeline(pipeline.id)
+    """ CLEANUP """
 
-    def _cleanup_pipeline(self, pipeline, is_early_exit = False):
-        # cancel pending tasks, let running tasks go to end
-        for task in pipeline.tasks:
-            if task.state == TaskState.PENDING and task.cancellable:
-                task.cycle.transition(TaskState.CANCELED)
-                cancel_reason = f"was cancelable on {'requested graceful stop' if not is_early_exit else 'early exit'}"
-            elif (task.state == TaskState.RUNNING
-                    and self.cancel_policy == CancelPolicy.CANCEL_ALL):
-                task._runner.cleanup(task.name)
-                cancel_reason = f"forcefully stopped due to {'requested graceful stop' if not is_early_exit else 'early exit'}"
-            if task.on_cancel:
-                task.on_cancel(
-                    TaskOutcome(
-                        name = str(task.name),
-                        status = FinalStatus.CANCELED,
-                        error = Exception(f"task canceled : {cancel_reason}")
-                    )
-                )
+    def _cleanup_pipeline(self, pipeline : RuntimePipeline):
+        pipeline.cycle.transition(PipelineState.STOPPING)
 
         if self.cancel_policy == CancelPolicy.CANCEL_ALL:
-            if is_early_exit:
-                pipeline.cycle.transition(PipelineState.EARLY_EXIT)
-            else:
-                pipeline.cycle.transition(PipelineState.CANCELLED)
-        else:
-            pipeline.cycle.transition(PipelineState.STOPPING)
+            for task in pipeline.tasks:
+                if (task.cycle.state in (TaskState.PENDING, TaskState.RUNNING)):
+                    task._runner.cleanup(task.name)
+                    cancel_reason = f"forcefully stopped due to early exit"
+
+                if task.on_cancel:
+                    task.on_cancel(
+                        TaskOutcome(
+                            name = str(task.name),
+                            status = FinalStatus.CANCELED,
+                            error = Exception(f"task canceled : {cancel_reason}")
+                        )
+                    )
+            pipeline.cycle.transition(PipelineState.CANCELED)
+        elif self.cancel_policy == CancelPolicy.CANCEL_PENDING_ONLY:
+            for task in pipeline.tasks:
+                if task.cycle.state == TaskState.PENDING:
+                    task.cycle.transition(TaskState.CANCELED)
+                    cancel_reason = f"was cancelable on requested graceful stop"
+
+                if task.on_cancel:
+                    task.on_cancel(
+                        TaskOutcome(
+                            name = str(task.name),
+                            status = FinalStatus.CANCELED,
+                            error = Exception(f"task canceled : {cancel_reason}")
+                        )
+                    )

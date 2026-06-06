@@ -2,7 +2,6 @@ from .field_schema import FieldSchema as FieldSchema
 from .json_schema_type import JsonSchemaType as JsonSchemaType
 from .json_schema import JsonSchema as JsonSchema
 from .output_type import OutputType as OutputType
-from .command_schema import CommandSchema as CommandSchema
 from .log_event import LogEvent as LogEvent
 from .enveloppe import Enveloppe as Enveloppe
 from .msg_type import MsgType as MsgType
@@ -10,3 +9,6 @@ from .source_type import SourceType as SourceType
 from .routing_policy import RoutingPolicy as RoutingPolicy
 from .seen_sequences import SeenSequences as SeenSequences
 from .backend_error_kind import BackendErrorKind as BackendErrorKind
+
+from .command_field import CommandField as CommandField
+from .control_command import ControlCommand as ControlCommand

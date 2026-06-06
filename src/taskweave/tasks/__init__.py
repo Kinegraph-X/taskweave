@@ -18,3 +18,4 @@ from .execution_context import (
     SynchronousExecutionContext as SynchronousExecutionContext,
     ExecutionPool as ExecutionPool
 )
+from .pool_provider import PoolProvider as PoolProvider

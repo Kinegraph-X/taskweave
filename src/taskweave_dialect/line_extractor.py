@@ -6,6 +6,9 @@ import ast, re, traceback, json
 from .field import Field
 from .dialect_error import DialectErrorKind, DialectError
 from .diagnostics import Diagnostics
+from .static_diagnostics import StaticDiagnostics
+from .diagnostic_info import DiagnosticInfo
+from .extraction_result import ExtractionResult
 
 from taskweave.buses import MiniBus, ObservabilityPolicy
 from taskweave.info_stream import StreamWriter
@@ -28,7 +31,7 @@ class LineExtractor(Protocol):
 class LineExtractorRunner(Protocol):
     extractors : list[Field]
 
-    def parse(self, line: str, is_test : bool = False) -> dict[str, Any] | None:
+    def parse(self, line: str, is_test : bool = False) -> ExtractionResult:
         pass
     
 
@@ -37,8 +40,15 @@ class LineExtractorRunner(Protocol):
 class RExtractor:
     extractors : list[Field]
     _runner : LineExtractorRunner = field(init = False)
+    valid : list[DiagnosticInfo] = field(init = False)
 
-    def parse(self, line: str, is_test : bool = False) -> dict[str, Any] | None:
+    def __post_init__(self):
+        static_diagnostics = StaticDiagnostics(
+            extractors = self.extractors
+        )
+        self.valid = static_diagnostics.analyze()
+
+    def parse(self, line: str, is_test : bool = False) -> ExtractionResult:
         if isinstance(self._runner, LineExtractorRunner):
             return self._runner.parse(line, is_test)
         else:
@@ -80,15 +90,14 @@ class RExtractorRunner:
     _log_bus : MiniBus
     _source_id : str
     
-    def parse(self, line: str, is_test : bool = False) -> dict[str, Any] | None:
-        results: dict[str, Any] = {}
-        failures : list[tuple[str, Pattern, DialectErrorKind]] = []
+    def parse(self, line: str, is_test : bool = False) -> ExtractionResult:
+        result = ExtractionResult()
 
         for extractor in self.extractors:
             try:
                 value = extractor.parse(line, is_test)
                 if value is None:
-                    failures.append(
+                    result.failures.append(
                         (
                             extractor.schema.name,
                             extractor.parser._rule.pattern,
@@ -96,11 +105,11 @@ class RExtractorRunner:
                         )
                     )
                     continue
-                results[extractor.schema.name] = value
+                result.results[extractor.schema.name] = value
 
             except DialectError as e:
                 # don't raise here, test mode prints later
-                failures.append(
+                result.failures.append(
                     (
                         extractor.schema.name,
                         extractor.parser._rule.pattern,
@@ -117,14 +126,14 @@ class RExtractorRunner:
                     )
                 )
 
-        if is_test and len(failures):
-            raise DialectError(
-                kind = DialectErrorKind.TEST_FAILED,
-                msg = f"Test failed (might be by design). Read the report",
-                failures = failures
-            ).with_traceback(None) from None
+        # if is_test and len(failures):
+        #     raise DialectError(
+        #         kind = DialectErrorKind.TEST_FAILED,
+        #         msg = f"Test failed (might be by design). Read the report",
+        #         failures = failures
+        #     ).with_traceback(None) from None
 
-        return results
+        return result
     
     
 

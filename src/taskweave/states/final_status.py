@@ -2,5 +2,5 @@ from enum import Enum
 
 class FinalStatus(Enum):
     SUCCESS = "succes"
-    STOPPED = "stopped"
+    CANCELED = "canceled"
     FAILURE = "failure"

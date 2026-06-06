@@ -2,12 +2,14 @@ import time
 from typing import List, Callable, cast
 from dataclasses import dataclass
 
+from .pool_provider import PoolProvider
 from .task import Task
 from .task_strategy import TaskRunner, ExecutionStrategy, PoolTaskRunner, SubprocessTaskRunner
+from .task_runner import TaskRunner, SubprocessTaskRunner
 
-from taskweave_protocol import LogProducer
+from taskweave.messages import LogProducer
 from taskweave.snapshots import TaskSnapshot
-from taskweave.states import TaskState, Lifecycle, CleanupStrategy, task_transitions
+from taskweave.states import TaskState, TaskLifecycle, CleanupStrategy, task_transitions
 from taskweave.utils import TaskId, CmdParam
 
 class PipelineTask:
@@ -15,25 +17,24 @@ class PipelineTask:
             self,
             task_spec : Task,
             on_change : Callable,
-            session_id : str = 'local',
+            session_id : TaskId,
             on_cleanup : Callable[[], None] | None = None
         ):
-        self.name : TaskId = TaskId(f"{task_spec.name}_{session_id}")
+        self.name : TaskId = task_spec.name
         self.cmd: List[CmdParam] = [cmd if isinstance(cmd, CmdParam) else CmdParam(cmd) for cmd in task_spec.cmd]
         self.strategy : ExecutionStrategy  = task_spec.strategy
-        self._runner : TaskRunner = task_spec._runner
+        self._runner : TaskRunner = SubprocessTaskRunner() # default constructed for type-checking, but must be explicitly assigned
+
         self.producer : LogProducer = task_spec.producer
-        self.early_exit_on_success : Callable | None = task_spec.early_exit_on_success
-        self.cancellable: bool = task_spec.cancellable
+        
         self.on_success : Callable | None = task_spec.on_success
         self.on_failure : Callable | None = task_spec.on_failure
         self.on_cancel : Callable | None = task_spec.on_cancel
         self.on_finally : Callable | None = task_spec.on_finally
         
-        self.state: TaskState = TaskState.PENDING
         if on_cleanup is not None:
-            self.cycle = Lifecycle(
-                state = TaskState.PENDING,
+            self.cycle = TaskLifecycle(
+                source_id = self.name,
                 transitions = task_transitions,
                 on_transition = on_change,
                 cleanup = CleanupStrategy.on_end(
@@ -42,19 +43,18 @@ class PipelineTask:
                 )
             )
         else:
-            self.cycle = Lifecycle(
-                state = TaskState.PENDING,
+            self.cycle = TaskLifecycle(
+                source_id = self.name,
                 transitions = task_transitions,
                 on_transition = on_change
             )
-        self.started_at : float = time.time()
-        self.last_error : str = ''
+
 
     def snapshot(self):
         return TaskSnapshot(
             self.name,
-            self.state,
-            self.started_at,
-            time.time() - self.started_at if self.started_at else 0,
+            self.cycle.state.value,
+            self.cycle.started_at,
+            time.time() - self.cycle.started_at if self.cycle.started_at else 0,
             self.last_error
         )

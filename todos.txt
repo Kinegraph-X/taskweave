@@ -127,3 +127,42 @@ forensic-first	préserver causalité	persiste tout
 degradation-aware	préserver stabilité	throttling
 quorum-based	préserver consensus métier	remplace worker
 confidence-based	préserver fiabilité observationnelle	downgrade décisions
+
+
+---
+
+`DiagnosticRenderer` en interface :
+
+```python
+class DiagnosticRenderer(Protocol):
+    def render(self, summary: DiagnosticSummary) -> None:
+        pass
+```
+
+Avec une implémentation par défaut minimaliste :
+
+```python
+@dataclass
+class PlainRenderer:
+    def render(self, summary: DiagnosticSummary) -> None:
+        # json.dumps basique, ce que tu as déjà
+```
+
+Et plus tard, sans toucher au reste :
+
+```python
+@dataclass
+class RichRenderer:
+    def render(self, summary: DiagnosticSummary) -> None:
+        # rich tables, colors, etc.
+```
+
+`SchemaRegistry` reçoit un renderer optionnel, avec `PlainRenderer` par défaut :
+
+```python
+@dataclass
+class SchemaRegistry:
+    ...
+    renderer: DiagnosticRenderer = field(default_factory=PlainRenderer)
+```
+

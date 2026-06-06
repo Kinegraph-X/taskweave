@@ -9,6 +9,7 @@ from taskweave.utils import TaskId
 @dataclass(kw_only = True)
 class LogEvent:
     source_id: TaskId
+    state : str | None = None
     msg_type: MsgType = MsgType.LOG_LINE
     source_type: SourceType = SourceType.TASK   # enum : TASK | PIPELINE | SESSION
     timestamp: float
@@ -16,6 +17,12 @@ class LogEvent:
     sequence : int = 0        # allow post-mortem reading of logs
     msg: str = ""             # always the raw line
     parsed: Any | None = None # result of dialect classifier, opaque for the lib
+
+    @property
+    def event_name(self):
+        if self.msg_type == MsgType.STATE_CHANGE:
+            return f"task.state.{self.state}"
+        return 'task'
 
     def format(self):
         return json.dumps(

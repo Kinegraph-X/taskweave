@@ -4,7 +4,7 @@ from taskweave.states import TaskState
 @dataclass
 class TaskSnapshot:
     name: str
-    state: TaskState
+    state: str
     started_at: float
     elapsed: float
     last_error: str

@@ -20,7 +20,6 @@ class Task:
     producer : LogProducer = field(default_factory = LogEventProducer)
     backend : PersistBackend | None = None
     early_exit_on_success : Callable[[], bool] | None = None
-    cancellable: bool = True
     on_success : Callable | None = None
     on_failure : Callable | None = None
     on_cancel : Callable | None = None

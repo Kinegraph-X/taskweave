@@ -20,6 +20,12 @@ from taskweave_protocol import LogEvent, SourceType, MsgType, BackendErrorKind
 
 class PersistBackend(Protocol):
     config : PersistConfig
+    def make_runner(
+        self,
+        source_id : str,
+        error_sink : Callable
+    ):
+        pass
 
 @dataclass(kw_only = True)
 class FileBackend:
@@ -36,6 +42,17 @@ class FileBackend:
     @property
     def _min_drain_threshold(self) -> int:
         return self.min_drain_threshold if self.min_drain_threshold is not None else self.max_lines
+
+    def make_runner(
+        self,
+        source_id : str,
+        error_sink : Callable
+    ):
+        return FileBackendRunner(
+            source_id = source_id,
+            backend = self,
+            error_sink = error_sink
+        )
 
 class PersistBackendRunner(Protocol):
     def write(self, source_id: str, line: str) -> None:...
@@ -283,11 +300,11 @@ class FileBackendRunner:
 
 # future implems
 @dataclass
-class InMemoryBackend:
+class InMemoryBackendRunner:
     def write(self, source_id: str, line: str) -> None:...
     def close(self) -> None:...
 
 @dataclass
-class NullBackend:
+class NullBackendRunner:
     def write(self, source_id: str, line: str) -> None:...
     def close(self) -> None:...

@@ -28,14 +28,14 @@ class Field:
 
         self.schema = schema
         self.group = group
-        
+
         if callable(parser):
             parser(target = target, group = group)
         else:
             self.parser = FieldParser(target = target, group = group)
 
         try:
-            self.parser.compile()
+            self.valid = self.parser.compile()
         except Exception as e:
             raise e.with_traceback(None) from None
         

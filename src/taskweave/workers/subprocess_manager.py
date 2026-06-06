@@ -8,11 +8,11 @@ from time import time, sleep
 
 from .worker_pool import WorkerPool
 from .task_outcome import TaskOutcome
-from .final_status import FinalStatus
 from .cancel_intent import CancelIntent
 from .completed_task import CompletedTask
 
 from taskweave.messages import LogProducer, LogEventProducer
+from taskweave.states import FinalStatus
 
 from taskweave.utils import TaskId
 from taskweave_protocol import LogEvent, MsgType, SourceType
@@ -26,10 +26,10 @@ class SubProcessManager:
     Mimics WorkerManager which handles concurrent workers, but is pure one-shot
     Both implement WorkerPool as a minimal generic
     """
+    max_count = 1
     log_bus : MiniBus
     source_id: str
     producer: LogProducer = field(default_factory=LogEventProducer)
-    # _completion_queue: Queue = field(default_factory=Queue)
     _process: Popen | None = field(init=False, default=None)
     _stdout_thread: Thread | None = field(init=False, default=None)
     _completion_thread: Thread | None = field(init=False, default=None)
@@ -67,7 +67,7 @@ class SubProcessManager:
         if self._process:
             self._process.terminate()
         if self.on_cancel:
-            self._execute_callback(self.source_id, self.on_cancel, FinalStatus.STOPPED)
+            self._execute_callback(self.source_id, self.on_cancel, FinalStatus.CANCELED)
         self._done.set()
 
     def remove_worker(self, name: str) -> None:
@@ -109,7 +109,6 @@ class SubProcessManager:
             self._heartbeat.beat(event) # log_bus is called by heartbeat
 
         self._process.wait()
-        # self._completion_queue.put(CompletedTask(name=self.source_id))
 
     # Handles the need for global synchronization
     # on state-snapshots in the main thread
@@ -130,29 +129,6 @@ class SubProcessManager:
             
         self._done.set()
             
-        # while True:
-        #     result = self._completion_queue.get()
-        #     name = result.name
-        #     if not name == self.source_id:
-        #         self._completion_queue.put(result)
-        #         sleep(.01)
-        #         continue
-            
-            # this type doesn't use this mecanism
-            # if isinstance(CancelIntent, result):
-            #     self.stop_worker(name)
-            #     break
-            # el
-            # if isinstance(CompletedTask, result):
-            #     if self._process.returncode == 0 and on_success:
-            #         self._execute_callback(
-            #             self.source_id, on_success, FinalStatus.SUCCESS)
-            #     elif on_failure:
-            #         self._execute_callback(
-            #             self.source_id, on_failure, FinalStatus.FAILURE)
-            #     break
-            # self._done.set()
-
     def _execute_callback(self, name: str, cb: Callable, final_status: FinalStatus):
         # enforce no race condition between FAILED/CANCELED or SUCCESS/CANCELED
         if self._done.is_set():

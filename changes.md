@@ -193,3 +193,7 @@ class ObservabilityPolicy(Enum):
 - *Protocol partiel + Context Object* — chaque composant déclare ce qu'il consomme, `ExecutionContext` satisfait tout structurellement
 - *Two-phase construction* — phase déclarative à la définition, phase opérationnelle à `submit()`
 - *`_completion_dispatch` comme seul arbitre du statut final* — `CancelIntent` et `CompletionResult` dans la même queue, premier arrivé décide
+
+---
+
+on_finally : saga in-process uniquement. Pour une saga distante, observez task.succeeded et envoyez une commande via SessionGateway
