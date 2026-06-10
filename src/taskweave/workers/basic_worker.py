@@ -9,7 +9,9 @@ from time import time
 
 
 from .worker_logger import WorkerLogger
-from taskweave_protocol import LogProducer, LogEventProducer, LogEvent, MsgType, SourceType
+
+from taskweave.messages import LogProducer, LogEventProducer
+from taskweave_protocol import LogEvent, MsgType, SourceType
 from taskweave.states import WorkerContext
 from taskweave.utils import TaskId
 

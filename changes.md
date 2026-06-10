@@ -19,7 +19,7 @@ Voilà le bilan structuré.
 - [*] Implémenter `CircuitBreaker` sur `PersistStrategy` avec `write_internal()` pour éviter la boucle
 - [*] Implémenter `ObservabilityPolicy` (`BEST_EFFORT` / `SAFE`) avec `register_failure_behavior(cb)`
 - [ ] Implémenter `ObservabilityFailureContext` avec `last_emitted`, `last_persisted`, `missing_count`
-- [ ] Implémenter `ErrorChannel` sur socket séparé
+- [*] Implémenter `ErrorChannel` (destiné à socket/Flask séparé)
 - [ ] Implémenter `ControlChannel` avec `ControlDialect` et `CommandSerializer`
 - [*] Ajouter `control: ControlDialect | None` sur `Task` (nullable, opt-in)
 - [*] Implémenter `HeartBeat`
@@ -27,12 +27,12 @@ Voilà le bilan structuré.
 
 **Tests**
 - [ ] Machine à états — transitions illégales
-- [ ] Snapshot immutabilité — muter la source ne mute pas le snapshot
-- [ ] Routage callbacks — `on_success` / `on_failure` / `on_finally` exclusifs et indépendants
+- [*] Snapshot immutabilité — muter la source ne mute pas le snapshot
+- [*] Routage callbacks — `on_success` / `on_failure` / `on_finally` exclusifs et indépendants
 - [ ] Exception dans callback — les autres callbacks continuent
 - [*] Backend timeout — non bloquant pour l'orchestrateur
-- [ ] Race condition completion/cancel — via `_completion_dispatch`
-- [ ] `HeartBeat` — avec `FakeClock` et `FakeSleep` injectés
+- [ ] Race condition completion/cancel — via `_completion_done`
+- [*] `HeartBeat` — avec `FakeClock` et `FakeSleep` injectés
 - [*] `CircuitBreaker` — ouverture après threshold, recovery après timeout
 - [ ] `PersistRegistry` — routing correct selon `RoutingPolicy`
 - [*] Unicité des IDs — collision détectée dans `LogStore`
@@ -93,8 +93,7 @@ def add_task() # délègue a _define_runner(self, task : Task) -> None et _handl
 def __init__()
     self._writer = writer
     self._observability_policy = observability_policy
-    self._failure_behavior = failure_behavior
-    self._last_seen_sequences : dict[TaskId, SeenSequences] = {} # du fait d'un canal d'erreur indépendant du logging (pour propager l'échec du logging), branchement entre MiniBus.emit_internal et StreamWriter._on_internal_event, fait par SessionManager
+    self._last_seen_sequences : dict[TaskId, SeenSequences] = {} # du fait d'un canal d'erreur indépendant du logging (pour propager l'échec du logging), branchement entre MiniBus.emit_internal et StreamWriter._on_internal_event, fait par ObservabilityContext
 def emit(self, event: LogEvent) -> None:
 def emit_internal(self, event : LogEvent) -> None:
     self._handle_observability_policy(event)
@@ -107,7 +106,6 @@ class ExecutionStrategy(Protocol):
 # avec ExecutionPool(
         #     source_id = task.name,
         #     pools = self._execution_pools,
-        #     global_completion_queue = self._global_completion_queue,
         #     event_bus = self._log_bus
         # )
 # juste un contexte, consommé ou pas : fonctionne quel que soit l'implem
@@ -115,8 +113,6 @@ class ExecutionStrategy(Protocol):
 
 **`WorkerManager`**
 ```python
-# paramètre de construction ajouté
-_completion_queue: Queue | None = None  # underscore — usage interne, pensée globale à la lib, mais découplage quand-même sur le package "workers"
 _event_bus: MiniBus | None = None       # underscore — usage interne, pensé instance unique, point de branchement unique avec StreamWriter, mais découplage quand-même sur le package "workers"
 ```
 

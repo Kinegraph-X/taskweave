@@ -1,4 +1,4 @@
-from .task_state import TaskState
+from taskweave.states import TaskState
 
 task_transitions = {
     TaskState.PENDING : {

@@ -26,7 +26,6 @@ class SubProcessManager:
     Mimics WorkerManager which handles concurrent workers, but is pure one-shot
     Both implement WorkerPool as a minimal generic
     """
-    max_count = 1
     log_bus : MiniBus
     source_id: str
     producer: LogProducer = field(default_factory=LogEventProducer)
@@ -35,6 +34,7 @@ class SubProcessManager:
     _completion_thread: Thread | None = field(init=False, default=None)
     _done : Event = Event()
     _init : Event = Event()
+    max_count : int = 1
 
     def add_worker(
         self,
@@ -134,13 +134,8 @@ class SubProcessManager:
         if self._done.is_set():
             return
         
-        outcome: TaskOutcome = TaskOutcome(
-            name=name,
-            status=final_status,
-            error=None
-        )
         try:
-            cb(outcome)
+            cb()
         except Exception as e:
             stacktrace = traceback.format_exc()
             event = LogEvent(

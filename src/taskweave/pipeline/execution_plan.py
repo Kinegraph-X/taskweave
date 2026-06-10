@@ -1,7 +1,8 @@
 from dataclasses import dataclass, field
 
+from .pipeline import Pipeline
+
 from taskweave.tasks import CancelPolicy, Task, PoolStrategy
-from taskweave.pipeline import Pipeline
 from taskweave.utils import TaskId
 from taskweave.buses import ObservabilityPolicy
 

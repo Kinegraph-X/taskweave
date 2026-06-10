@@ -5,7 +5,8 @@ from dataclasses import dataclass
 
 from taskweave.snapshots import PipelineSnapshot
 from taskweave.tasks import PipelineTask, Task
-from taskweave.states import PipelineState, PipelineLifecycle, pipeline_transitions
+from taskweave.lifecycle import PipelineLifecycle, pipeline_transitions
+from taskweave.states import PipelineState
 from taskweave.utils import TaskId
 
 class RuntimePipeline():

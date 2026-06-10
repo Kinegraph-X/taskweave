@@ -14,4 +14,3 @@ class SessionSnapshot:
     started_at : float
     elapsed : float
     pipelines : Dict[str, PipelineSnapshot]
-    failure_reasons : List[PipelineFailure]

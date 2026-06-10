@@ -3,11 +3,11 @@ from typing import List, Callable
 from .pipeline import Pipeline
 from .runtime_pipeline import RuntimePipeline
 from .execution_plan import ExecutionPlan
-from .observability_context import ObservabilityContext
 
+from taskweave.buses import ObservabilityContext
 from taskweave.states import PipelineState, TaskState, FinalStatus
 from taskweave.tasks import Task, PipelineTask, CancelPolicy, ExternalStrategy, PoolProvider
-from taskweave.utils import TaskId
+from taskweave.utils import TaskId, SinkContext
 from taskweave.workers import TaskOutcome
 
 
@@ -56,7 +56,7 @@ class PipelineOrchestrator:
                 session_id = session_id,
                 source_id = task.name
             )
-            on_cleanup = self.obs.handle_task_persistence(task)
+            on_cleanup = self._handle_task_persistence(task)
             t = p.add_task(
                 task_spec = task,
                 on_change = on_transition,
@@ -65,6 +65,36 @@ class PipelineOrchestrator:
             self.pool_provider.define_runner(t)
 
         self.pipelines[pipeline.id] = p
+
+    def _handle_task_persistence(self, task_spec: Task) -> Callable:
+        """
+        This method connects LogProducer, RoutingPolicy and PersistBackend
+        (Due to decoupling with the "workers" package, 
+        tasks without specific producer are defaulted to LogEventProducer.)
+        """
+        if task_spec.backend:
+            backend_runner = task_spec.backend.make_runner(
+                source_id = str(task_spec.name),
+                error_sink = self.obs.log_bus.emit_internal
+            )
+            task_spec.producer.make_sink(
+                context = SinkContext(
+                    source_id = str(task_spec.name),
+                    backend = task_spec.backend
+                )
+            )
+            self.obs._persist_registry.add_context(
+                task_spec.name,
+                backend_runner
+            )
+            def cleanup(): 
+                self.obs.stream_writer.unregister_sink(
+                    task_spec.name
+                )
+                task_spec.backend.close()
+            return cleanup
+        
+        return lambda: None
 
 
     """ RESTARTS """
@@ -93,7 +123,7 @@ class PipelineOrchestrator:
         pipeline.cycle.transition(PipelineState.RUNNING)
 
     def start_all_pipelines(self):
-        for pipeline in self.pipelines:
+        for pipeline in self.pipelines.values():
             self.start_pipeline(pipeline.id)
 
     def stop_pipeline(self, pipeline_id : TaskId):

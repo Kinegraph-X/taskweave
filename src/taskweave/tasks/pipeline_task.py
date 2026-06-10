@@ -2,14 +2,14 @@ import time
 from typing import List, Callable, cast
 from dataclasses import dataclass
 
-from .pool_provider import PoolProvider
 from .task import Task
 from .task_strategy import TaskRunner, ExecutionStrategy, PoolTaskRunner, SubprocessTaskRunner
 from .task_runner import TaskRunner, SubprocessTaskRunner
 
+from taskweave.lifecycle import TaskLifecycle, task_transitions, CleanupStrategy
 from taskweave.messages import LogProducer
 from taskweave.snapshots import TaskSnapshot
-from taskweave.states import TaskState, TaskLifecycle, CleanupStrategy, task_transitions
+from taskweave.states import TaskState
 from taskweave.utils import TaskId, CmdParam
 
 class PipelineTask:

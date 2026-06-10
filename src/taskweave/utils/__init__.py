@@ -5,8 +5,11 @@ from .str_serializable import StrSerializable as StrSerializable
 from .ref import Ref as Ref
 from .cmd_param import CmdParam as CmdParam
 from .task_id import TaskId as TaskId
-from .session import Session as Session
 from .sink_context import SinkContext as SinkContext
+from .json_serialize import (
+    jsonSerialize as jsonSerialize,
+    parse_enum as parse_enum
+)
 
 from .circuit_breaker_config import (
     PersistConfig as PersistConfig,

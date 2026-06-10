@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 
 from taskweave.persist import PersistRegistry
 from taskweave.utils import TaskId, CmdParam
-from taskweave.workers import WorkerPool, WorkerManager, SubProcessManager
+from taskweave.workers import WorkerPool, SubProcessManager, NoOpPool
 from taskweave.messages import LogProducer
 from taskweave.buses import MiniBus, ObservabilityPolicy, HeartbeatConfig
 from taskweave.info_stream import StreamWriter
@@ -117,7 +117,7 @@ class SubprocessTaskRunner:
 
 @dataclass
 class NoOpRunner:
-    manager : WorkerPool = field(default_factory = WorkerPool)
+    manager : WorkerPool = field(default_factory = NoOpPool)
 
     def __post_init__(self):...
 

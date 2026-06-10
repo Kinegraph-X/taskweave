@@ -1,4 +1,4 @@
-from .session_state import SessionState
+from taskweave.states import SessionState
 
 session_transitions = {
     SessionState.PENDING : {

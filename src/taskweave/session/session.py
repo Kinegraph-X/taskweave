@@ -1,9 +1,11 @@
 from dataclasses import dataclass, field
 from time import time
 from uuid import uuid4
+
 from taskweave.pipeline import RuntimePipeline
-from taskweave.states import SessionState, SessionLifecycle
-from taskweave.snapshots import PipelineFailure, SessionSnapshot
+from taskweave.lifecycle import SessionLifecycle, session_transitions
+from taskweave.states import SessionState
+from taskweave.snapshots import SessionSnapshot
 from taskweave.utils import TaskId
 
 @dataclass(kw_only = True)
@@ -14,6 +16,7 @@ class Session:
     def __post_init__(self):
         self.cycle = SessionLifecycle(
             source_id = self.id,
+            transitions = session_transitions,
             on_transition = lambda old, new, event: None
         )
 
@@ -23,7 +26,6 @@ class Session:
                 state = str(self.cycle.state),
                 started_at=self.cycle.started_at,
                 elapsed=time() - self.cycle.started_at if self.cycle.started_at else 0,
-                pipelines={str(id) : p.snapshot() for id, p in self.pipelines.items()},
-                failure_reasons=self.failure_reasons
+                pipelines={str(id) : p.snapshot() for id, p in self.pipelines.items()}
             )
     

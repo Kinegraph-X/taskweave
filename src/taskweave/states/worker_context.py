@@ -9,8 +9,6 @@ from .worker_to_task import WORKER_TO_TASK
 
 from taskweave.utils import TaskId
 
-from taskweave_protocol import LogEvent, SourceType, MsgType
-
 class WorkerContext:
     def __init__(self, name):
         self.name = name

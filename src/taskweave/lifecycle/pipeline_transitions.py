@@ -1,13 +1,13 @@
-from .pipeline_state import PipelineState
+from taskweave.states import PipelineState
 
 pipeline_transitions = {
     PipelineState.PENDING : {
         PipelineState.RUNNING,
-        PipelineState.STOPPED
+        PipelineState.CANCELED
     },
     PipelineState.RUNNING : {
         PipelineState.SUCCESS,
         PipelineState.FAILED,
-        PipelineState.STOPPED
+        PipelineState.CANCELED
     }
 }

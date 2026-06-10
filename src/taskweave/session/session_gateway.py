@@ -14,19 +14,18 @@ class SessionGateway:
         if isinstance(parsed, ParseError):
             raise parsed
         
-        # TODO : ensure cancel_policy & observability_policy are enums in plan
         self._control = SessionManager.create(
-            cancel_policy=parsed.plan.cancel_policy
+            cancel_policy = parsed.plan.cancel_policy,
+            observability_policy = parsed.plan.observability_policy
         )
         
-        # construit les PoolStrategy dans SessionControl
+        # inject pools via PoolStrategies in SessionControl
         for name, strategy in parsed.pools.pools.items():
             self._control.add_pool(name, strategy.max_parallel)
         
-        self._stored_plan = payload
         self._control.execute(parsed.plan)
 
-    def get_plan(self):
+    def get_plan(self) -> str:
         return self._registry.get_json_plan(
             self._control.plan,
             self._control.pool_provider.execution_pools

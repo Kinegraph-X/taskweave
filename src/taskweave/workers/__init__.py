@@ -2,7 +2,10 @@ from .basic_worker import BasicWorker as BasicWorker
 from .worker_logger import WorkerLogger as WorkerLogger
 from .worker_manager import WorkerManager as WorkerManager
 from .worker_status import WorkerStatus as WorkerStatus
-from .worker_pool import WorkerPool as WorkerPool
+from .worker_pool import (
+    WorkerPool as WorkerPool,
+    NoOpPool as NoOpPool
+)
 from .subprocess_manager import SubProcessManager as SubProcessManager
 from .work_item import WorkItem as WorkItem
 from .task_outcome import TaskOutcome as TaskOutcome

@@ -7,16 +7,16 @@ from .task_runner import TaskRunner, NoOpRunner
 
 from taskweave.persist import PersistBackend
 from taskweave.utils import CmdParam, TaskId, ReverseStrAccumulator, StrAccumulator
-from taskweave_protocol import LogProducer, LogEventProducer
+from taskweave.messages import LogProducer, LogEventProducer
 
-from taskweave_transport import ControlDialect
+from taskweave_dialect import ControlDialect
 
 @dataclass(kw_only = True)
 class Task:
     name : str | TaskId
     cmd: List[str | CmdParam]
     strategy : ExecutionStrategy = field(default_factory = SynchronousStrategy)
-    _runner : TaskRunner = field(default = NoOpRunner(), init = False)
+    _runner : TaskRunner = field(default_factory = NoOpRunner, init = False)
     producer : LogProducer = field(default_factory = LogEventProducer)
     backend : PersistBackend | None = None
     early_exit_on_success : Callable[[], bool] | None = None

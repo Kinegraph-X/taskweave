@@ -1,13 +1,13 @@
 from .command_serializer import CommandSerializer
 
-from taskweave_protocol import CommandSchema
+from taskweave_protocol import CommandField
 from taskweave_transport import ControlTransport
 
 class ControlDialect:
     """ Describes what a process can receive."""
-    commands: list[CommandSchema]
+    commands: list[CommandField]
     transport: ControlTransport
-    serializer: CommandSerializer  # comment encoder CommandSchema → bytes
+    serializer: CommandSerializer
 
 """
 fetch_control = ControlDialect(

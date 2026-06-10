@@ -1,4 +1,5 @@
 from typing import Callable, Protocol
+from uuid import uuid4
 from dataclasses import dataclass, field
 from queue import Queue
 
@@ -30,6 +31,7 @@ class PoolStrategy:
 
 @dataclass(kw_only = True)
 class SynchronousStrategy:
+    pool_name : str = field(default_factory = lambda : uuid4().hex)
     def _get_runner(
             self,
             context : SynchronousExecutionContext

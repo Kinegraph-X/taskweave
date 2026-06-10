@@ -5,9 +5,10 @@ from time import time
 from taskweave.context import get_app_context
 config, constants, args = get_app_context()
 from taskweave_protocol import LogEvent, MsgType, Enveloppe, SourceType
-from taskweave.tasks import Task, PoolTaskRunner, SubprocessTaskRunner
+from taskweave.tasks import Task, SynchronousStrategy, PoolTaskRunner, SubprocessTaskRunner
 from taskweave.workers import WorkerManager
-from taskweave.session import SessionManager
+from taskweave.session import SessionManager, SessionControl
+from taskweave.pipeline import Pipeline
 
 @pytest.fixture
 def done():
@@ -46,23 +47,28 @@ def after_complete(done):
 @pytest.fixture
 def session(tmp_path, monkeypatch, on_event):
     monkeypatch.setattr(constants, "log_dir", tmp_path / "logs")
-    session = SessionManager(on_event = on_event)
+    session = SessionControl(on_event = on_event)
     yield session
-    session.reset(on_event = on_event)
+    session.reset()
 
 @pytest.fixture
 def task(after_complete):
     return Task(
         name = "smoke",
-        strategy = SubprocessTaskRunner(),
+        strategy = SynchronousStrategy(),
         cmd = ["python", "--version"],
-        after_complete = after_complete
+        on_finally = after_complete
     )
 
 @pytest.fixture(autouse=True)
 def pipeline(session, task):
-    pipeline_id = session.add_pipeline()
-    session.add_task(pipeline_id, task)
+    p = Pipeline(
+        tasks = [task]
+    )
+    pipeline_id = session.orchestrator._hydrate_pipeline(
+        session_id = session.session.id,
+        pipeline = p
+    )
     return session
 
 @pytest.fixture

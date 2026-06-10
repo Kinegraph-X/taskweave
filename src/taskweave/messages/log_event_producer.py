@@ -11,7 +11,7 @@ class LogEventProducer:
     """
     default routing policy is forward & don't persist
     """
-    on_line_fn : Callable[[str, str], LogEvent] = lambda source_id, line : (
+    _on_line_fn : Callable[[str, str], LogEvent] = lambda source_id, line : (
                 LogEvent(
                     msg_type = MsgType.LOG_LINE,
                     source_type = SourceType.TASK,

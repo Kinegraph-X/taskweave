@@ -1,6 +1,6 @@
 
 
-def test_log_line(
+def test_state_change(
         done,
         activity_events,
         session,

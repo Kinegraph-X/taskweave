@@ -271,13 +271,8 @@ class WorkerManager:
                 return
             self.completion_done[name] = True
         
-        outcome : TaskOutcome = TaskOutcome(
-            name = name,
-            status = final_status,
-            error = None
-        )
         try:
-            cb(outcome)
+            cb()
         except Exception as e:
             stacktrace = traceback.format_exc()
             event = LogEvent(

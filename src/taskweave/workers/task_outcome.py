@@ -1,7 +1,7 @@
 from typing import Any
 from dataclasses import dataclass
 
-from .final_status import FinalStatus
+from taskweave.states import FinalStatus
 
 @dataclass(kw_only = True, frozen=True)
 class TaskOutcome:

@@ -3,10 +3,10 @@ from typing import List, Callable, cast
 from dataclasses import dataclass, field
 
 from .lifecycle import Lifecycle
-from .session_state import SessionState
 from .session_transitions import session_transitions
 from .cleanup_strategy import CleanupStrategy
 
+from taskweave.states import SessionState
 from taskweave.utils import TaskId
 
 from taskweave_protocol import LogEvent, SourceType, MsgType
@@ -22,7 +22,7 @@ class SessionLifecycle(Lifecycle[SessionState]):
 
     def transition(self, new: SessionState) -> None:
         self.cleanup.do(new)
-
+        
         if new not in self.transitions.get(self.state, set()):
             raise RuntimeError(f"session state mismatch {self.source_id} : state {self.state.value}, expected {self.transitions.get(self.state, set())}")
         

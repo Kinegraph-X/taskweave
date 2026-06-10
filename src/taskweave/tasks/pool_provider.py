@@ -1,7 +1,11 @@
 from dataclasses import dataclass, field
 
+from .pipeline_task import PipelineTask
+from .task_strategy import PoolStrategy
+from .task_runner import PoolTaskRunner, TaskRunner
+from .execution_context import ExecutionPool
+
 from taskweave.buses import MiniBus, ObservabilityPolicy
-from taskweave.tasks import CancelPolicy, PipelineTask, PoolStrategy, PoolTaskRunner, TaskRunner, ExecutionPool
 from taskweave.workers import WorkerManager
 
 

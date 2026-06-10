@@ -8,7 +8,8 @@ from .submission_type import SubmissionType
 from taskweave.context import Config, get_app_context
 config, constants, args = get_app_context()
 
-from taskweave.pipeline import PipelineOrchestrator, ObservabilityContext, ExecutionPlan
+from taskweave.buses import ObservabilityContext
+from taskweave.pipeline import PipelineOrchestrator, ExecutionPlan
 from taskweave.states import SessionState, TaskState
 from taskweave.snapshots import SessionSnapshot
 from taskweave.buses import MiniBus, ObservabilityPolicy
@@ -21,10 +22,14 @@ from taskweave_protocol import ControlCommand
 class SessionControl:
     def __init__(
         self,
+        on_event : Callable,
         cancel_policy : CancelPolicy = CancelPolicy.CANCEL_PENDING_ONLY,
         observability_policy : ObservabilityPolicy = ObservabilityPolicy.SAFE
     ):
+        self.ensure_safe_context()
+
         self.obs = ObservabilityContext(
+            on_event = on_event,
             snapshot_getter = self.snapshot,
             observability_policy = observability_policy
         )
@@ -52,12 +57,17 @@ class SessionControl:
         )
 
     def execute(self, plan: ExecutionPlan) -> None:
+        self.obs.log_bus._observability_policy = plan.observability_policy
         self._plan = plan
         self.orchestrator.execute_plan(
             session_id = self.session.id,
             plan = plan
         )
         self.session.cycle.transition(SessionState.RUNNING)
+
+    def start(self) -> None:
+        self.session.cycle.transition(SessionState.RUNNING)
+        self.orchestrator.start_all_pipelines()
 
     def stop(self) -> None:
         self.session.cycle.transition(SessionState.STOPPING)
@@ -84,6 +94,21 @@ class SessionControl:
         return self.session.snapshot()
     
     def send_command(self, cmd: ControlCommand) -> None: ...
+
+    def reset(self, cancel_policy : CancelPolicy = CancelPolicy.CANCEL_PENDING_ONLY):
+        self.pool_provider = PoolProvider(
+            _log_bus = self.obs.log_bus
+        )
+        
+        self.orchestrator = PipelineOrchestrator(
+            obs = self.obs,
+            pool_provider = self.pool_provider,
+            cancel_policy = cancel_policy
+        )
+    
+        self.session = Session(
+            pipelines = self.orchestrator.pipelines
+        )
 
     def ensure_safe_context(self):
         os.makedirs(constants.log_dir, exist_ok = True)
